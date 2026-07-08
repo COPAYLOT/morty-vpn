@@ -21,6 +21,7 @@ import com.zaneschepke.wireguardautotunnel.ui.common.functions.rememberClipboard
 import com.zaneschepke.wireguardautotunnel.ui.common.functions.rememberFileExportLauncherForResult
 import com.zaneschepke.wireguardautotunnel.ui.common.functions.rememberFileImportLauncherForResult
 import com.zaneschepke.wireguardautotunnel.ui.navigation.Route
+import com.zaneschepke.wireguardautotunnel.ui.screens.tunnels.components.RemoteSyncDialog
 import com.zaneschepke.wireguardautotunnel.ui.screens.tunnels.components.TunnelImportSheet
 import com.zaneschepke.wireguardautotunnel.ui.screens.tunnels.components.TunnelList
 import com.zaneschepke.wireguardautotunnel.ui.screens.tunnels.components.UrlImportDialog
