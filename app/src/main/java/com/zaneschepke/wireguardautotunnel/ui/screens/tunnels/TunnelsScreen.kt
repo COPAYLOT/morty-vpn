@@ -177,5 +177,10 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
         )
     }
 
+    val isRemoteSyncing by sharedViewModel.isRemoteSyncing.collectAsStateWithLifecycle()
+    if (isRemoteSyncing) {
+        RemoteSyncDialog()
+    }
+
     TunnelList(uiState, Modifier.fillMaxSize(), sharedViewModel)
 }

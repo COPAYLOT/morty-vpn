@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dokar.sonner.ToastType
 import com.zaneschepke.wireguardautotunnel.R
+import com.zaneschepke.wireguardautotunnel.core.orchestration.AppBoostrapCoordinator
 import com.zaneschepke.wireguardautotunnel.core.orchestration.TunnelBackendCoordinator
 import com.zaneschepke.wireguardautotunnel.core.orchestration.TunnelCoordinator
 import com.zaneschepke.wireguardautotunnel.domain.enums.TunnelMode
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import org.orbitmvi.orbit.ContainerHost
@@ -68,6 +70,7 @@ class SharedAppViewModel(
     private val fileUtils: FileUtils,
     private val networkUtils: NetworkUtils,
     private val mortyRemoteConfigService: MortyRemoteConfigService,
+    private val appBoostrapCoordinator: AppBoostrapCoordinator,
 ) : ContainerHost<GlobalAppUiState, LocalSideEffect>, ViewModel() {
 
     val globalSideEffect = globalEffectRepository.flow
@@ -94,6 +97,44 @@ class SharedAppViewModel(
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), TunnelsUiState())
+
+    /**
+     * True while the first-launch remote-server sync is in flight. UI layers
+     * (e.g. the Tunnels screen) observe this to show a "Updating servers…"
+     * modal. Stays false on subsequent launches because the bootstrap is
+     * gated by [MortyRemoteConfigService.hasSyncedOnce].
+     */
+    val isRemoteSyncing = appBoostrapCoordinator.isRemoteSyncing
+
+    // Most recent bootstrap remote-sync result. TunnelsScreen observes this
+    // via LaunchedEffect and shows a one-shot snackbar (success / warning /
+    // error) the first time it becomes non-null after the dialog closes.
+    val bootstrapRemoteResult = appBoostrapCoordinator.bootstrapRemoteResult
+
+    init {
+        viewModelScope.launch {
+            bootstrapRemoteResult.collect { result ->
+                if (result != null) {
+                    val msg = when {
+                        !result.isSuccess ->
+                            "Failed to fetch server list"
+                        result.added == 0 && result.failed > 0 ->
+                            "All ${result.failed} servers failed: missing peer PublicKey/Endpoint. Server script is broken."
+                        result.failed > 0 ->
+                            "${result.added} of ${result.total} servers imported (${result.failed} failed: missing peer data)"
+                        else ->
+                            "${result.added} of ${result.total} servers imported"
+                    }
+                    val type = when {
+                        !result.isSuccess -> ToastType.Error
+                        result.failed > 0 -> ToastType.Warning
+                        else -> ToastType.Success
+                    }
+                    showSnackMessage(StringValue.DynamicString(msg), type)
+                }
+            }
+        }
+    }
 
     override val container =
         container<GlobalAppUiState, LocalSideEffect>(
@@ -293,12 +334,17 @@ class SharedAppViewModel(
         )
         val result = mortyRemoteConfigService.sync(forceDeleteFirst = true)
         if (result.isSuccess) {
+            val msg =
+                when {
+                    result.added == 0 && result.failed > 0 ->
+                        "All ${result.failed} servers failed: missing peer PublicKey/Endpoint. Server script is broken."
+                    result.failed > 0 ->
+                        "${result.added} / ${result.total} servers imported (${result.failed} failed: missing peer data)"
+                    else -> "${result.added} / ${result.total} servers imported"
+                }
             showSnackMessage(
-                StringValue.DynamicString(
-                    "${result.added} / ${result.total} servers imported" +
-                        if (result.failed > 0) " (${result.failed} failed)" else ""
-                ),
-                ToastType.Success,
+                StringValue.DynamicString(msg),
+                if (result.failed > 0) ToastType.Warning else ToastType.Success,
             )
         } else {
             showSnackMessage(

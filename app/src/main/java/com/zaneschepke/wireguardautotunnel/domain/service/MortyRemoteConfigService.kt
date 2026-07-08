@@ -6,6 +6,7 @@ import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyRemoteConfigDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyRemoteServerDto
 import com.zaneschepke.wireguardautotunnel.domain.model.TunnelConfig
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
+import com.zaneschepke.wireguardautotunnel.parser.Config
 import com.zaneschepke.wireguardautotunnel.util.extensions.saveTunnelsUniquely
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -91,13 +92,11 @@ class MortyRemoteConfigService(
         val parsed = mutableListOf<TunnelConfig>()
         var failed = 0
         for (server in servers) {
-            try {
-                val tunnel =
-                    TunnelConfig.tunnelConfFromQuick(server.config.trim(), server.name.trim())
+            val (tunnel, ok) = parseAndValidate(server)
+            if (ok && tunnel != null) {
                 parsed += tunnel
-            } catch (e: Exception) {
+            } else {
                 failed++
-                Timber.e(e, "Failed to parse remote server '${server.name}'")
             }
         }
 
@@ -121,5 +120,36 @@ class MortyRemoteConfigService(
             failed = failed,
             total = servers.size,
         )
+    }
+
+    /**
+     * Parse a remote server's `.conf` text and reject configs that have no
+     * usable [Peer] block. The Google Apps Script endpoint sometimes ships
+     * configs with `PublicKey = ` and `Endpoint = :51820` (no hostname),
+     * which WireGuard's IPC will reject at tunnel-start time and cause the
+     * VPN toggle to flip back to OFF immediately.
+     *
+     * @return pair of (parsed TunnelConfig or null, success boolean)
+     */
+    private fun parseAndValidate(server: MortyRemoteServerDto): Pair<TunnelConfig?, Boolean> {
+        val trimmedConfig = server.config.trim()
+        val trimmedName = server.name.trim()
+        val parsedConfig = try {
+            Config.parseQuickString(trimmedConfig)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to parse config for '${server.name}'")
+            return null to false
+        }
+        val hasUsablePeer = parsedConfig.peers.any { peer ->
+            peer.publicKey.isNotBlank() && !peer.endpoint.isNullOrBlank()
+        }
+        if (!hasUsablePeer) {
+            Timber.w("Skipping remote server '${server.name}': [Peer] block is missing PublicKey/Endpoint (server script is broken)")
+            return null to false
+        }
+        return TunnelConfig(
+            name = parsedConfig.name ?: trimmedName,
+            quickConfig = trimmedConfig,
+        ) to true
     }
 }

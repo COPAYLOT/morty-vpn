@@ -34,6 +34,17 @@ class AppBoostrapCoordinator(
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
 
+    private val _isRemoteSyncing = MutableStateFlow(false)
+    val isRemoteSyncing: StateFlow<Boolean> = _isRemoteSyncing.asStateFlow()
+
+    // Holds the most recent bootstrap sync result (or null before sync
+    // completes). UI layers observe this via SharedAppViewModel to surface
+    // an error snackbar when the remote script returns broken configs.
+    private val _bootstrapRemoteResult =
+        MutableStateFlow<MortyRemoteConfigService.SyncResult?>(null)
+    val bootstrapRemoteResult: StateFlow<MortyRemoteConfigService.SyncResult?> =
+        _bootstrapRemoteResult.asStateFlow()
+
     suspend fun bootstrap() = coroutineScope {
         launch { bootstrapLogging() }
         // First-launch: pull the latest server list from the remote endpoint
@@ -60,15 +71,28 @@ class AppBoostrapCoordinator(
     }
 
     private suspend fun bootstrapRemoteConfig() {
+        // Hard gate: only sync once per install. The DataStore flag
+        // MORTY_REMOTE_SYNCED_ONCE is set to true by the service after a
+        // successful sync, so subsequent app launches skip this entirely.
+        if (mortyRemoteConfigService.hasSyncedOnce()) {
+            Timber.d("Remote config already synced on a previous launch, skipping")
+            return
+        }
+        _isRemoteSyncing.value = true
         try {
             val result = mortyRemoteConfigService.sync(forceDeleteFirst = false)
+            _bootstrapRemoteResult.value = result
             if (result.isSuccess) {
-                Timber.d("Morty remote config bootstrap: ${result.added}/${result.total} added")
+                Timber.d("Morty remote config bootstrap: ${result.added}/${result.total} added (${result.failed} failed)")
             } else {
                 Timber.w(result.error, "Morty remote config bootstrap failed (non-fatal)")
             }
         } catch (e: Exception) {
+            _bootstrapRemoteResult.value =
+                MortyRemoteConfigService.SyncResult(0, 0, 0, e)
             Timber.e(e, "Morty remote config bootstrap threw (non-fatal)")
+        } finally {
+            _isRemoteSyncing.value = false
         }
     }
 

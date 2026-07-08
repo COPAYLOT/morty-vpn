@@ -9,6 +9,8 @@
     <string name="morty_get_new_servers">Get new servers</string>
     <string name="morty_fetching_servers">Fetching latest server list…</string>
     <string name="morty_fetch_failed">Failed to fetch server list</string>
+    <string name="morty_sync_dialog_title">Updating servers</string>
+    <string name="morty_sync_dialog_message">Downloading the latest server list. Please wait…</string>
     <string name="github_sponsors_url" translatable="false">https://github.com/sponsors/zaneschepke</string>
     <string name="kofi_url" translatable="false">https://ko-fi.com/zaneschepke</string>
     <string name="liberapay_url" translatable="false">https://liberapay.com/zaneschepke</string>
