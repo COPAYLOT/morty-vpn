@@ -45,7 +45,7 @@
 	<uses-feature android:name="android.hardware.wifi"
 		android:required="false"/>
     <application
-        android:name=".WireGuardAutoTunnel"
+        android:name="com.zaneschepke.wireguardautotunnel.WireGuardAutoTunnel"
         android:allowBackup="false"
         android:banner="@mipmap/ic_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -61,7 +61,7 @@
                    android:value="${applicationId}" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.zaneschepke.wireguardautotunnel.MainActivity"
             android:exported="true"
 			android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.WireguardAutoTunnel"
@@ -145,7 +145,7 @@
         </activity>
 
         <activity
-            android:name=".core.shortcut.ShortcutsActivity"
+            android:name="com.zaneschepke.wireguardautotunnel.core.shortcut.ShortcutsActivity"
             android:enabled="true"
             android:exported="false"
 			android:noHistory="true"
@@ -175,7 +175,7 @@
                 tools:node="remove" />
         </provider>
         <service
-            android:name=".service.tile.TunnelControlTile"
+            android:name="com.zaneschepke.wireguardautotunnel.service.tile.TunnelControlTile"
             android:exported="true"
             android:icon="@drawable/qs_logo"
             android:label="@string/tunnel_control"
@@ -192,7 +192,7 @@
             </intent-filter>
         </service>
         <service
-            android:name=".service.tile.AutoTunnelControlTile"
+            android:name="com.zaneschepke.wireguardautotunnel.service.tile.AutoTunnelControlTile"
             android:exported="true"
             android:icon="@drawable/qs_logo"
             android:label="@string/auto_tunnel"
@@ -209,7 +209,7 @@
             </intent-filter>
         </service>
         <service
-            android:name=".service.autotunnel.AutoTunnelService"
+            android:name="com.zaneschepke.wireguardautotunnel.service.autotunnel.AutoTunnelService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse"
@@ -225,7 +225,7 @@
         </service>
 
         <receiver
-            android:name=".core.broadcast.RestartReceiver"
+            android:name="com.zaneschepke.wireguardautotunnel.core.broadcast.RestartReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
@@ -240,7 +240,7 @@
         </receiver>
 		<!--custom security solution for easier user integration-->
 		<receiver
-			android:name=".core.broadcast.RemoteControlReceiver"
+			android:name="com.zaneschepke.wireguardautotunnel.core.broadcast.RemoteControlReceiver"
 			android:enabled="true"
 			android:exported="true" tools:ignore="ExportedReceiver">
 			<intent-filter>
@@ -253,7 +253,7 @@
 			</intent-filter>
 		</receiver>
 		<receiver
-			android:name=".core.broadcast.NotificationActionReceiver"
+			android:name="com.zaneschepke.wireguardautotunnel.core.broadcast.NotificationActionReceiver"
 			android:exported="false"
 			android:permission="${applicationId}.permission.CONTROL_TUNNELS">
 		</receiver>

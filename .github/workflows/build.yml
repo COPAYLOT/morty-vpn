@@ -3,6 +3,9 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - morty-vpn
   workflow_dispatch:
     inputs:
       build_type:
