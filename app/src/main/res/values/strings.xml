@@ -6,6 +6,9 @@
     <string name="vpn_channel_id" translatable="false">VPN Channel</string>
     <string name="proxy_channel_id" translatable="false">Proxy Channel</string>
     <string name="github_url" translatable="false">https://github.com/wgtunnel/wgtunnel/issues</string>
+    <string name="morty_get_new_servers">Get new servers</string>
+    <string name="morty_fetching_servers">Fetching latest server list…</string>
+    <string name="morty_fetch_failed">Failed to fetch server list</string>
     <string name="github_sponsors_url" translatable="false">https://github.com/sponsors/zaneschepke</string>
     <string name="kofi_url" translatable="false">https://ko-fi.com/zaneschepke</string>
     <string name="liberapay_url" translatable="false">https://liberapay.com/zaneschepke</string>

@@ -2,6 +2,7 @@ package com.zaneschepke.wireguardautotunnel.ui.screens.tunnels.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentPasteGo
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Link
@@ -23,6 +24,7 @@ fun TunnelImportSheet(
     onManualImportClick: () -> Unit,
     onClipboardClick: () -> Unit,
     onUrlClick: () -> Unit,
+    onGetNewServersClick: () -> Unit,
 ) {
     val isTv = LocalIsAndroidTV.current
 
@@ -76,6 +78,16 @@ fun TunnelImportSheet(
                     onClick = {
                         onDismiss()
                         onManualImportClick()
+                    },
+                )
+            )
+            add(
+                SheetOption(
+                    Icons.Outlined.CloudDownload,
+                    stringResource(R.string.morty_get_new_servers),
+                    onClick = {
+                        onDismiss()
+                        onGetNewServersClick()
                     },
                 )
             )

@@ -8,6 +8,7 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.GeneralSettingRepos
 import com.zaneschepke.wireguardautotunnel.domain.repository.LockdownSettingsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.MonitoringSettingsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
+import com.zaneschepke.wireguardautotunnel.domain.service.MortyRemoteConfigService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -27,6 +28,7 @@ class AppBoostrapCoordinator(
     private val tunnelProvider: TunnelProvider,
     private val dnsSettingsCoordinator: DnsSettingsCoordinator,
     private val logReader: LogReader,
+    private val mortyRemoteConfigService: MortyRemoteConfigService,
 ) {
 
     private val _isReady = MutableStateFlow(false)
@@ -34,6 +36,11 @@ class AppBoostrapCoordinator(
 
     suspend fun bootstrap() = coroutineScope {
         launch { bootstrapLogging() }
+        // First-launch: pull the latest server list from the remote endpoint
+        // (non-blocking, non-critical). forceDeleteFirst=false so we only add
+        // tunnels whose names are not already present, preserving any user
+        // configuration from a manual import.
+        launch { bootstrapRemoteConfig() }
 
         val criticalTasks =
             listOf(
@@ -49,6 +56,19 @@ class AppBoostrapCoordinator(
         } catch (e: Exception) {
             Timber.e(e, "One or more critical bootstrap tasks failed")
             _isReady.value = true
+        }
+    }
+
+    private suspend fun bootstrapRemoteConfig() {
+        try {
+            val result = mortyRemoteConfigService.sync(forceDeleteFirst = false)
+            if (result.isSuccess) {
+                Timber.d("Morty remote config bootstrap: ${result.added}/${result.total} added")
+            } else {
+                Timber.w(result.error, "Morty remote config bootstrap failed (non-fatal)")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Morty remote config bootstrap threw (non-fatal)")
         }
     }
 

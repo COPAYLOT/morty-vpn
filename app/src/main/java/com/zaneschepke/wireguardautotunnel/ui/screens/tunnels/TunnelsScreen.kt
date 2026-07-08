@@ -163,6 +163,7 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
             },
             onManualImportClick = { navController.push(Route.ConfigEdit(null)) },
             onUrlClick = { showUrlDialog = true },
+            onGetNewServersClick = { sharedViewModel.importRemoteServers() },
         )
     }
 

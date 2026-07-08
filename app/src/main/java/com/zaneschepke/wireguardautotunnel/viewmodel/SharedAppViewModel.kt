@@ -14,6 +14,7 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.GeneralSettingRepos
 import com.zaneschepke.wireguardautotunnel.domain.repository.GlobalEffectRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.SelectedTunnelsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
+import com.zaneschepke.wireguardautotunnel.domain.service.MortyRemoteConfigService
 import com.zaneschepke.wireguardautotunnel.domain.sideeffect.GlobalSideEffect
 import com.zaneschepke.wireguardautotunnel.parser.ConfigParseException
 import com.zaneschepke.wireguardautotunnel.service.ServiceManager
@@ -66,6 +67,7 @@ class SharedAppViewModel(
     private val httpClient: HttpClient,
     private val fileUtils: FileUtils,
     private val networkUtils: NetworkUtils,
+    private val mortyRemoteConfigService: MortyRemoteConfigService,
 ) : ContainerHost<GlobalAppUiState, LocalSideEffect>, ViewModel() {
 
     val globalSideEffect = globalEffectRepository.flow
@@ -279,6 +281,32 @@ class SharedAppViewModel(
     fun promptWgImport(url: String) = intent { reduce { state.copy(pendingWgImportUrl = url) } }
 
     fun dismissWgImport() = intent { reduce { state.copy(pendingWgImportUrl = null) } }
+
+    /**
+     * Fetch the latest server list from the remote Morty VPN endpoint and
+     * replace all existing tunnels with the result.
+     */
+    fun importRemoteServers() = intent {
+        showSnackMessage(
+            StringValue.StringResource(R.string.morty_fetching_servers),
+            ToastType.Info,
+        )
+        val result = mortyRemoteConfigService.sync(forceDeleteFirst = true)
+        if (result.isSuccess) {
+            showSnackMessage(
+                StringValue.DynamicString(
+                    "${result.added} / ${result.total} servers imported" +
+                        if (result.failed > 0) " (${result.failed} failed)" else ""
+                ),
+                ToastType.Success,
+            )
+        } else {
+            showSnackMessage(
+                StringValue.StringResource(R.string.morty_fetch_failed),
+                ToastType.Error,
+            )
+        }
+    }
 
     fun importFromUrl(url: String) = intent {
         reduce { state.copy(pendingWgImportUrl = null) }
