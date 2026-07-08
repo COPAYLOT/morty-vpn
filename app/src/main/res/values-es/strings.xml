@@ -67,7 +67,7 @@
     <string name="set_primary_tunnel">Establecer como túnel Principal</string>
     <string name="edit_tunnel">Editar túnel</string>
     <string name="settings">Ajustes</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="prominent_background_location_message">La monitorización SSID Wi-Fi necesita de permiso de ubicación en segundo plano incluso si la app está cerrada. Mira el enlace a la Política de Privacidad en la pantalla de ayuda para más detalles.</string>
     <string name="junk_packet_count">Recuento de paquetes «ruido»</string>
     <string name="junk_packet_minimum_size">Tamaño mínimo de paquetes «ruido»</string>

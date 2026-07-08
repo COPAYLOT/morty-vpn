@@ -110,7 +110,8 @@ configure<ApplicationExtension> {
 
         debug {
             applicationIdSuffix = ".debug"
-            resValue("string", "app_name", "Morty VPN Debug")
+            // Launcher label inherits from app/src/main/res/values/strings.xml ("Morty VPN").
+            // No resValue override so debug shows the same name as release.
             isDebuggable = true
             manifestPlaceholders["providerAuthority"] = "${Constants.APP_NAME}.provider.debug"
             buildConfigField("String", "FILE_PROVIDER_AUTHORITY", "\"${Constants.APP_NAME}.provider.debug\"")
@@ -119,7 +120,7 @@ configure<ApplicationExtension> {
         create(Constants.NIGHTLY) {
             initWith(buildTypes.getByName(Constants.RELEASE))
             applicationIdSuffix = ".nightly"
-            resValue("string", "app_name", "Morty VPN Nightly")
+            // Launcher label inherits from app/src/main/res/values/strings.xml ("Morty VPN").
             manifestPlaceholders["providerAuthority"] = "${Constants.APP_NAME}.provider.nightly"
             buildConfigField("String", "FILE_PROVIDER_AUTHORITY", "\"${Constants.APP_NAME}.provider.nightly\"")
         }

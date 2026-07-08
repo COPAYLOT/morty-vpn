@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tunnels">Tunele</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="peer">Peer</string>
     <string name="rotate_keys">Rotuj klucze</string>
     <string name="tunnel_on_ethernet">Tunel przez sieć ethernetową</string>

@@ -9,7 +9,7 @@
     <string name="base64_key">Chiave base64</string>
     <string name="listen_port">Porta d\'ascolto</string>
     <string name="error_no_file_explorer">Nessun gestore file installato</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="public_key">Chiave pubblica</string>
     <string name="addresses">Indirizzi</string>
     <string name="dns_servers">Server DNS</string>

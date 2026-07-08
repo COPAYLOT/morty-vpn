@@ -20,7 +20,7 @@
     <string name="add_peer">Ajouter un pair</string>
     <string name="rotate_keys">Rotation des clés</string>
     <string name="error_file_extension">Le fichier n\'est pas un .conf ou .zip</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="okay">Ok</string>
     <string name="prominent_background_location_message">Cette fonctionnalité nécessite d\'autoriser les services de localisation en arrière-plan pour activer la surveillance du SSID Wi-Fi même lorsque l\'application est fermée. Pour plus de détails, veuillez consulter la politique de confidentialité disponible sur l\'écran d\'assistance.</string>
     <string name="trusted_ssid_value_description">Envoyer le SSID</string>

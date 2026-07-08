@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="app_permission_description">Alagutak és automatikus alagút funkciók vezérlése.</string>
     <string name="enter_config_url">Konfigurációs URL megadása</string>
     <string name="use_android_recommended">Az Android verzió alapján javasolt módszer használata a Wi-Fi információk lekéréséhez</string>

@@ -21,7 +21,7 @@
     <string name="junk_packet_maximum_size">Tamanho máximo de pacote-lixo</string>
     <string name="init_packet_junk_size">Tamanho de pacote-lixo inicial</string>
     <string name="response_packet_junk_size">Tamanho de resposta de pacote-lixo</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="error_file_extension">O ficheiro não é .conf ou .zip</string>
     <string name="prominent_background_location_message">Este recurso precisa de permissões de localização em segundo plano para ativar o monitoramento do SSID da rede Wi-Fi mesmo quando a aplicação está fechado. Para mais pormenores, por favor veja a Política de Privacidade no ecrã de Suporte.</string>
     <string name="tunnels">Túneis</string>

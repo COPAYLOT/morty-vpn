@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="error_file_extension">See pole .conf või .zip fail</string>
     <string name="prominent_background_location_message">See funktsionaalsus eeldab, et rakendusel on õigus asukoha ja WiFi SSID taustal tuvastamiseks, seda ka siis, kui rakendus on suletud. Lisateavet leiad Privaatsusreeglite lehelt, leitav Kasutajatoe vaatest.</string>
     <string name="tunnels">Tunnelid</string>

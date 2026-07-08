@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="error_file_extension">ファイルが.confまたは.zipではありません</string>
     <string name="add_from_qr">QRコードから追加</string>
     <string name="tunnel_name">VPNトンネル名</string>

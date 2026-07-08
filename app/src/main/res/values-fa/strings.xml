@@ -13,5 +13,5 @@
     <string name="app_permission_description">تونل‌های کنترل و ویژگی‌های تونل خودکار.</string>
     <string name="tunnel_on_ethernet">تونل روی اترنت</string>
     <string name="prominent_background_location_message">این ویژگی برای فعال کردن نظارت بر SSID وای‌فای، حتی در زمان بسته بودن برنامه، به مجوز موقعیت مکانی در پس‌زمینه نیاز دارد. برای جزئیات بیشتر، لطفاً به سیاست حفظ حریم خصوصی که در صفحه پشتیبانی لینک شده است، مراجعه کنید.</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
 </resources>

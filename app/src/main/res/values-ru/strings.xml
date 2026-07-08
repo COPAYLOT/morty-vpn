@@ -42,7 +42,7 @@
     <string name="tunnel_on_wifi">Туннелирование через Wi-Fi</string>
     <string name="error_file_extension">Файл не имеет расширение .conf или .zip</string>
     <string name="random">(случайно)</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="tunnels">Туннели</string>
     <string name="okay">Хорошо</string>
     <string name="prominent_background_location_title">Фоновое отслеживание местоположения</string>

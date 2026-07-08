@@ -310,5 +310,5 @@
     <string name="auto_tunnel_running">자동 터널 실행 중</string>
     <string name="done">완료</string>
     <string name="thank_you">WG Tunnel을 이용해주셔서 감사드립니다!</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
 </resources>

@@ -3,7 +3,7 @@
     <string name="settings">Pengaturan</string>
     <string name="support">Dukungan</string>
     <string name="init_packet_junk_size">Ukuran sampah paket init</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="error_file_extension">File bukan berformat .conf atau .zip</string>
     <string name="tunnels">Terowongan</string>
     <string name="tunnel_mobile_data">Terowongan pada data seluler</string>

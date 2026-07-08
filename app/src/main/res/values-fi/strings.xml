@@ -9,7 +9,7 @@
     <string name="create_import">Luo tyhjästä</string>
     <string name="appearance">Ulkoasu</string>
     <string name="dns_servers">DNS-palvelimet</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="delete_tunnel_message">Haluatko varmasti poistaa tämän tunnelin?</string>
     <string name="tunnels">Tunnelit</string>
     <string name="privacy_policy">Näytä tietosuojakäytäntö</string>

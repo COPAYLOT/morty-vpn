@@ -64,7 +64,7 @@
     <string name="no_browser_detected">没有安装浏览器</string>
     <string name="incorrect_pin">密码不正确</string>
     <string name="junk_packet_count">无效包计数</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="open_issue">查看问题</string>
     <string name="auto">(自动)</string>
     <string name="pin_created">创建密码成功</string>

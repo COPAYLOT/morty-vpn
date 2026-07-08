@@ -2,7 +2,7 @@
 <resources>
     <string name="error_file_extension">Bestand is geen .conf of .zip</string>
     <string name="tunnel_mobile_data">Tunnel bij mobiele data</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="tunnels">Tunnels</string>
     <string name="privacy_policy">Privacybeleid</string>
     <string name="tunnel_on_ethernet">Tunnel bij ethernet</string>

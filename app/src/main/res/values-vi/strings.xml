@@ -21,7 +21,7 @@
     <string name="app_permission_description">Kiểm soát tunnel &amp; các tính năng tự động kết nối tunnel.</string>
     <string name="trusted_ssid_value_description">Gửi SSID</string>
     <string name="always_on_vpn_support">Cho phép VPN luôn bật</string>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="tunnel_name">Tên tunnel</string>
     <string name="thank_you">Cảm ơn vì đã sử dụng WG Tunnel!</string>
 </resources>

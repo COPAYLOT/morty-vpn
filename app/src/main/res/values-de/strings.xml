@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WG Tunnel</string>
+    <string name="app_name">Morty VPN</string>
     <string name="error_file_extension">Datei ist keine .conf oder .zip</string>
     <string name="tunnels">Tunnel</string>
     <string name="tunnel_mobile_data">Tunnel für mobile Daten</string>
