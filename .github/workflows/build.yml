@@ -105,8 +105,15 @@ jobs:
 
       - name: Build APK
         run: |
-          flavor=${{ inputs.flavor }}
-          build_type=${{ inputs.build_type }}
+          # Push trigger: hardcode standalone+debug. workflow_dispatch: use inputs (with defaults).
+          if [ "${{ github.event_name }}" = "push" ]; then
+            flavor="standalone"
+            build_type="debug"
+          else
+            flavor="${{ inputs.flavor }}"
+            build_type="${{ inputs.build_type }}"
+          fi
+          echo "Building flavor=$flavor build_type=$build_type"
           case $build_type in
             "release")
               ./gradlew :app:assemble${flavor^}Release --info
@@ -123,12 +130,22 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
       - name: Get release apk path
         id: apk-path
-        run: echo "path=$(find . -regex '^.*/build/outputs/apk/${{ inputs.flavor }}/${{ inputs.build_type }}/.*\.apk$' -type f | head -1 | tail -c+2)" >> $GITHUB_OUTPUT
+        run: |
+          # For push trigger, hardcode path. For workflow_dispatch, use inputs.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            flavor="standalone"
+            build_type="debug"
+          else
+            flavor="${{ inputs.flavor }}"
+            build_type="${{ inputs.build_type }}"
+          fi
+          path=$(find . -regex "^.*/build/outputs/apk/${flavor}/${build_type}/.*\.apk$" -type f | head -1 | tail -c+2)
+          echo "path=$path" >> $GITHUB_OUTPUT
       - name: Upload All APK Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: android_artifacts_${{ inputs.flavor }}
-          path: >-
-            app/build/outputs/apk/${{ inputs.flavor }}/${{ inputs.build_type }}/*.apk
-          retention-days: 1
-          if-no-files-found: warn
+          # For push, hardcode name. For workflow_dispatch, use flavor name.
+          name: ${{ github.event_name == 'push' && 'morty-vpn-standalone-debug' || format('android_artifacts_{0}', inputs.flavor) }}
+          path: ${{ github.event_name == 'push' && 'app/build/outputs/apk/standalone/debug/*.apk' || format('app/build/outputs/apk/{0}/{1}/*.apk', inputs.flavor, inputs.build_type) }}
+          retention-days: 7
+          if-no-files-found: error
