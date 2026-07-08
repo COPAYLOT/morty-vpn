@@ -30,7 +30,10 @@ licensee {
 }
 
 configure<ApplicationExtension> {
-    namespace = Constants.APP_ID
+    // Keep namespace at the original package so R/BuildConfig classes stay at
+    // com.zaneschepke.wireguardautotunnel.{R,BuildConfig} (source files import from there).
+    // Only the installed applicationId (Play Store identity) is changed via APP_ID.
+    namespace = "com.zaneschepke.wireguardautotunnel"
     compileSdk = Constants.TARGET_SDK
 
     androidResources { generateLocaleConfig = true }
