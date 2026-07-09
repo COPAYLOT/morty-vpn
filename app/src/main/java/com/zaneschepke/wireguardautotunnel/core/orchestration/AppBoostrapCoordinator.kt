@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -71,14 +72,14 @@ class AppBoostrapCoordinator(
     }
 
     private suspend fun bootstrapRemoteConfig() {
-        // Skip the entire Proton sync if we already have tunnels in the DB
-        // (e.g. on every launch after the first successful sync). This avoids
-        // a ~10-15s re-download on every cold start and is the main fix for
-        // the "long black screen" + "re-downloads after crash" complaints.
-        // To force a refresh, the user taps the "Get new servers" menu
-        // action, which calls sync(forceDeleteFirst = true) directly.
-        if (tunnelRepository.getAll().isNotEmpty()) {
-            Timber.d("Skipping bootstrap Proton sync: tunnels already in DB")
+        // Skip the entire Proton sync if we already have USER tunnels in
+        // the DB (e.g. on every launch after the first successful sync).
+        // We can't use getAll() because the global tunnel config is always
+        // present (1 row), so a freshly-installed app with only the global
+        // config would falsely look "synced". Use the userTunnelsFlow which
+        // excludes the global config.
+        if (tunnelRepository.userTunnelsFlow.firstOrNull()?.isNotEmpty() == true) {
+            Timber.d("Skipping bootstrap Proton sync: user tunnels already in DB")
             return
         }
         // Proton VPN syncs are non-critical and rare (once per install).

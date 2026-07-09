@@ -17,8 +17,6 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
 import com.zaneschepke.wireguardautotunnel.util.extensions.saveTunnelsUniquely
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import timber.log.Timber
@@ -87,63 +85,51 @@ class ProtonConfigService(
     suspend fun sync(forceDeleteFirst: Boolean = true): SyncResult =
         withContext(Dispatchers.IO) {
             try {
-                coroutineScope {
-                    // 1. Phase 0 + obfuscation (independent) run in parallel.
-                    val phase0Job = async { anonymousLoginPhase0() }
-                    val obfJob = async { obfuscationRepository.get() }
-
-                    // 2. Phase 1 depends on Phase 0's UID + token.
-                    val phase0 = phase0Job.await()
-                    val phase1Job =
-                        async { anonymousLoginPhase1(phase0.UID, phase0.AccessToken) }
-
-                    // 3. /logicals + /certificate both depend on Phase 1; can
-                    //    run in parallel. /certificate also needs the new keypair.
-                    val phase1 = phase1Job.await()
-                    val keypair = ProtonCrypto.generateKeypair()
-                    val serversJob =
-                        async { fetchServers(phase1.AccessToken, phase1.UID) }
-                    val certJob =
-                        async {
-                            requestCertificate(
-                                phase1.AccessToken,
-                                phase1.UID,
-                                keypair.ed25519PublicPem,
-                            )
-                        }
-
-                    val servers = serversJob.await()
-                    val cert = certJob.await()
-                    val obfuscation = obfJob.await()
-
-                    val best = pickBestPerCountry(servers)
-                    if (best.isEmpty()) {
-                        return@coroutineScope SyncResult(
-                            added = 0,
-                            failed = 0,
-                            total = 0,
-                            error = IllegalStateException("No free servers in Proton response"),
-                        )
-                    }
-
-                    val (parsed, broken, parseErrors) =
-                        buildAndCollectConfigs(best, keypair.x25519Private)
-
-                    if (broken > 0 || parseErrors > 0) {
-                        Timber.w(
-                            "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
-                        )
-                    }
-
-                    persistConfigs(parsed, forceDeleteFirst)
-
-                    SyncResult(
-                        added = parsed.size,
-                        failed = broken + parseErrors,
-                        total = best.size,
-                        certSerial = cert.SerialNumber,
+                // Sequential, not parallel: Ktor/OkHttp + 4 concurrent
+                // requests to the same Apps Script host (script.google.com)
+                // occasionally hangs. Sequential is slower (~10-15s) but
+                // reliable. The skip-if-tunnels-exist check in the bootstrap
+                // coordinator means this only runs on the very first install.
+                val session = anonymousLogin()
+                val servers = fetchServers(session.AccessToken, session.UID)
+                val best = pickBestPerCountry(servers)
+                if (best.isEmpty()) {
+                    return@withContext SyncResult(
+                        added = 0,
+                        failed = 0,
+                        total = 0,
+                        error = IllegalStateException("No free servers in Proton response"),
                     )
                 }
+
+                val keypair = ProtonCrypto.generateKeypair()
+                val cert = requestCertificate(
+                    session.AccessToken,
+                    session.UID,
+                    keypair.ed25519PublicPem,
+                )
+
+                // Fetch obfuscation for diagnostics; not embedded in confs
+                // (Proton Free tier is plain WireGuard, AWG params break handshake).
+                obfuscationRepository.get()
+
+                val (parsed, broken, parseErrors) =
+                    buildAndCollectConfigs(best, keypair.x25519Private)
+
+                if (broken > 0 || parseErrors > 0) {
+                    Timber.w(
+                        "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
+                    )
+                }
+
+                persistConfigs(parsed, forceDeleteFirst)
+
+                SyncResult(
+                    added = parsed.size,
+                    failed = broken + parseErrors,
+                    total = best.size,
+                    certSerial = cert.SerialNumber,
+                )
             } catch (e: Exception) {
                 Timber.w(e, "Proton sync failed")
                 val (status, body) = unwrapHttp(e)
