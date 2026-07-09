@@ -47,6 +47,7 @@ lifecycleViewmodelNavigation3 = "2.11.0"
 parser = "1.1.1"
 relinker = "1.4.5"
 libsu = "6.0.0"
+bouncyCastle = "1.78.1"
 jetbrainsKotlinJvm = "2.4.0"
 sonner = "0.3.9"
 aboutlibraries = "15.0.3"
@@ -166,6 +167,7 @@ junit = { module = "junit:junit", version.ref = "junit" }
 
 # serialization
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
+bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncyCastle" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktorClientCore" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktorClientCore" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktorClientCore" }

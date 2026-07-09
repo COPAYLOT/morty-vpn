@@ -275,6 +275,9 @@ dependencies {
         exclude(group = "org.reactivestreams", module = "reactive-streams")
     }
 
+    // Ed25519/X25519 crypto for Proton VPN key generation
+    implementation(libs.bouncycastle-prov)
+
     // DI
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)

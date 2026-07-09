@@ -13,7 +13,7 @@ import com.zaneschepke.wireguardautotunnel.di.Dispatcher
 import com.zaneschepke.wireguardautotunnel.di.Scope
 import com.zaneschepke.wireguardautotunnel.di.appModule
 import com.zaneschepke.wireguardautotunnel.di.coordinatorModule
-import com.zaneschepke.wireguardautotunnel.di.mortyRemoteConfigModule
+import com.zaneschepke.wireguardautotunnel.di.protonConfigModule
 import com.zaneschepke.wireguardautotunnel.di.databaseModule
 import com.zaneschepke.wireguardautotunnel.di.dispatchersModule
 import com.zaneschepke.wireguardautotunnel.di.networkModule
@@ -74,7 +74,7 @@ class WireGuardAutoTunnel : Application(), KoinComponent {
                 tunnelModule,
                 workerModule,
                 coordinatorModule,
-                mortyRemoteConfigModule,
+                protonConfigModule,
             )
             options(viewModelScopeFactory())
             lazyModules(networkModule)

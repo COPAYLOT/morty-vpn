@@ -15,7 +15,7 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.GeneralSettingRepos
 import com.zaneschepke.wireguardautotunnel.domain.repository.GlobalEffectRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.SelectedTunnelsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
-import com.zaneschepke.wireguardautotunnel.domain.service.MortyRemoteConfigService
+import com.zaneschepke.wireguardautotunnel.domain.service.ProtonConfigService
 import com.zaneschepke.wireguardautotunnel.domain.sideeffect.GlobalSideEffect
 import com.zaneschepke.wireguardautotunnel.parser.ConfigParseException
 import com.zaneschepke.wireguardautotunnel.service.ServiceManager
@@ -69,7 +69,7 @@ class SharedAppViewModel(
     private val httpClient: HttpClient,
     private val fileUtils: FileUtils,
     private val networkUtils: NetworkUtils,
-    private val mortyRemoteConfigService: MortyRemoteConfigService,
+    private val protonConfigService: ProtonConfigService,
     private val appBoostrapCoordinator: AppBoostrapCoordinator,
 ) : ContainerHost<GlobalAppUiState, LocalSideEffect>, ViewModel() {
 
@@ -102,7 +102,7 @@ class SharedAppViewModel(
      * True while the first-launch remote-server sync is in flight. UI layers
      * (e.g. the Tunnels screen) observe this to show a "Updating servers…"
      * modal. Stays false on subsequent launches because the bootstrap is
-     * gated by [MortyRemoteConfigService.hasSyncedOnce].
+     * gated by the Proton service's one-shot behaviour (cert valid ~1 year).
      */
     val isRemoteSyncing = appBoostrapCoordinator.isRemoteSyncing
 
@@ -117,13 +117,13 @@ class SharedAppViewModel(
                 if (result != null) {
                     val msg = when {
                         !result.isSuccess ->
-                            "Failed to fetch server list"
-                        result.added == 0 && result.failed > 0 ->
-                            "All ${result.failed} servers failed: missing peer PublicKey/Endpoint. Server script is broken."
+                            "Proton sync failed: ${result.error?.message?.take(60) ?: "unknown"}"
+                        result.added == 0 ->
+                            "No servers imported (all ${result.total} broken)"
                         result.failed > 0 ->
-                            "${result.added} of ${result.total} servers imported (${result.failed} failed: missing peer data)"
+                            "Imported ${result.added} / ${result.total} countries (${result.failed} broken)"
                         else ->
-                            "${result.added} of ${result.total} servers imported"
+                            "Imported ${result.added} / ${result.total} countries from Proton VPN"
                     }
                     val type = when {
                         !result.isSuccess -> ToastType.Error
@@ -332,15 +332,15 @@ class SharedAppViewModel(
             StringValue.StringResource(R.string.morty_fetching_servers),
             ToastType.Info,
         )
-        val result = mortyRemoteConfigService.sync(forceDeleteFirst = true)
+        val result = protonConfigService.sync(forceDeleteFirst = true)
         if (result.isSuccess) {
             val msg =
                 when {
-                    result.added == 0 && result.failed > 0 ->
-                        "All ${result.failed} servers failed: missing peer PublicKey/Endpoint. Server script is broken."
+                    result.added == 0 ->
+                        "No Proton servers imported (0/${result.total})"
                     result.failed > 0 ->
-                        "${result.added} / ${result.total} servers imported (${result.failed} failed: missing peer data)"
-                    else -> "${result.added} / ${result.total} servers imported"
+                        "Imported ${result.added} / ${result.total} countries (${result.failed} broken)"
+                    else -> "Imported ${result.added} / ${result.total} countries from Proton VPN"
                 }
             showSnackMessage(
                 StringValue.DynamicString(msg),

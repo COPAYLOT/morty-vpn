@@ -8,7 +8,7 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.GeneralSettingRepos
 import com.zaneschepke.wireguardautotunnel.domain.repository.LockdownSettingsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.MonitoringSettingsRepository
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
-import com.zaneschepke.wireguardautotunnel.domain.service.MortyRemoteConfigService
+import com.zaneschepke.wireguardautotunnel.domain.service.ProtonConfigService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -28,7 +28,7 @@ class AppBoostrapCoordinator(
     private val tunnelProvider: TunnelProvider,
     private val dnsSettingsCoordinator: DnsSettingsCoordinator,
     private val logReader: LogReader,
-    private val mortyRemoteConfigService: MortyRemoteConfigService,
+    private val protonConfigService: ProtonConfigService,
 ) {
 
     private val _isReady = MutableStateFlow(false)
@@ -41,8 +41,8 @@ class AppBoostrapCoordinator(
     // completes). UI layers observe this via SharedAppViewModel to surface
     // an error snackbar when the remote script returns broken configs.
     private val _bootstrapRemoteResult =
-        MutableStateFlow<MortyRemoteConfigService.SyncResult?>(null)
-    val bootstrapRemoteResult: StateFlow<MortyRemoteConfigService.SyncResult?> =
+        MutableStateFlow<ProtonConfigService.SyncResult?>(null)
+    val bootstrapRemoteResult: StateFlow<ProtonConfigService.SyncResult?> =
         _bootstrapRemoteResult.asStateFlow()
 
     suspend fun bootstrap() = coroutineScope {
@@ -71,21 +71,19 @@ class AppBoostrapCoordinator(
     }
 
     private suspend fun bootstrapRemoteConfig() {
-        // Hard gate: only sync once per install. The DataStore flag
-        // MORTY_REMOTE_SYNCED_ONCE is set to true by the service after a
-        // successful sync, so subsequent app launches skip this entirely.
-        if (mortyRemoteConfigService.hasSyncedOnce()) return
+        // Proton VPN syncs are non-critical and rare (once per install).
+        // forceDeleteFirst = false so we never clobber an existing user config.
         _isRemoteSyncing.value = true
         try {
-            val result = mortyRemoteConfigService.sync(forceDeleteFirst = false)
+            val result = protonConfigService.sync(forceDeleteFirst = false)
             _bootstrapRemoteResult.value = result
             if (!result.isSuccess) {
-                Timber.w(result.error, "Remote config sync failed (non-fatal)")
+                Timber.w(result.error, "Proton sync failed (non-fatal)")
             }
         } catch (e: Exception) {
             _bootstrapRemoteResult.value =
-                MortyRemoteConfigService.SyncResult(0, 0, 0, e)
-            Timber.w(e, "Remote config sync threw (non-fatal)")
+                ProtonConfigService.SyncResult(0, 0, 0, error = e)
+            Timber.w(e, "Proton sync threw (non-fatal)")
         } finally {
             _isRemoteSyncing.value = false
         }
