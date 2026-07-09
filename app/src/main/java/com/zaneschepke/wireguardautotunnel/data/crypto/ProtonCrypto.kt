@@ -1,15 +1,12 @@
 package com.zaneschepke.wireguardautotunnel.data.crypto
 
+import android.util.Base64
 import java.security.MessageDigest
 import java.security.SecureRandom
-import org.bouncycastle.asn1.edec.EdECObjectIdentifiers
-import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter
-import java.io.StringWriter
 
 /**
  * Proton VPN-compatible key generation.
@@ -44,8 +41,9 @@ object ProtonCrypto {
         val priv = pair.private as Ed25519PrivateKeyParameters
         val pub = pair.public as Ed25519PublicKeyParameters
 
-        // libsodium convention: full ed25519 sk = seed (32) || pub (32)
-        val x25519Priv = ed25519PrivateToX25519(priv.seed, pub.encoded)
+        // libsodium convention: full ed25519 sk = seed (32) || pub (32) — BC's
+        // Ed25519PrivateKeyParameters.encoded already returns those 64 bytes.
+        val x25519Priv = ed25519PrivateToX25519(priv.encoded)
 
         val pem = encodeEd25519PublicAsPem(pub.encoded)
 
@@ -58,26 +56,48 @@ object ProtonCrypto {
 
     /**
      * Equivalent to libsodium's `crypto_sign_ed25519_sk_to_curve25519`.
-     * Uses SHA-512(seed || pub)[0..32] with RFC 7748 clamping.
+     * input: 64-byte ed25519 sk (= seed || pub).
+     * output: SHA-512(input)[0..32] with RFC 7748 clamping.
      */
-    private fun ed25519PrivateToX25519(seed: ByteArray, pub: ByteArray): ByteArray {
-        require(seed.size == 32 && pub.size == 32)
+    private fun ed25519PrivateToX25519(full: ByteArray): ByteArray {
+        require(full.size == 64)
         val md = MessageDigest.getInstance("SHA-512")
-        md.update(seed)
-        md.update(pub)
+        md.update(full)
         val hash = md.digest()
-        val x = ByteArray(32)
-        System.arraycopy(hash, 0, x, 0, 32)
+        val x = hash.copyOfRange(0, 32)
         // RFC 7748 §5: clamp the scalar
         x[0] = (x[0].toInt() and 248).toByte()
         x[31] = ((x[31].toInt() and 127) or 64).toByte()
         return x
     }
 
+    /**
+     * Ed25519 SubjectPublicKeyInfo DER header (14 bytes). Followed by 32
+     * bytes of raw public key. Layout:
+     *   SEQUENCE (44 bytes)
+     *     SEQUENCE (7 bytes)
+     *       OID 1.3.101.112 (5 bytes)
+     *       NULL (2 bytes)
+     *     BIT STRING (35 bytes)
+     *       unused bits = 0
+     *       32 bytes key
+     */
+    private val ED25519_SPKI_HEADER: ByteArray =
+        byteArrayOf(
+            0x30, 0x2C,
+            0x30, 0x07,
+            0x06, 0x03, 0x2B, 0x65, 0x70,
+            0x05, 0x00,
+            0x03, 0x21,
+            0x00,
+        )
+
     private fun encodeEd25519PublicAsPem(pub: ByteArray): String {
-        val spki = SubjectPublicKeyInfo(EdECObjectIdentifiers.id_Ed25519, pub)
-        val sw = StringWriter()
-        JcaPEMWriter(sw).use { it.writeObject(spki) }
-        return sw.toString()
+        require(pub.size == 32)
+        val der = ED25519_SPKI_HEADER + pub
+        val b64 = Base64.encodeToString(der, Base64.NO_WRAP)
+        return "-----BEGIN PUBLIC KEY-----\n" +
+            b64.chunked(64).joinToString("\n") +
+            "\n-----END PUBLIC KEY-----\n"
     }
 }

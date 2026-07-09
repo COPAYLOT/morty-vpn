@@ -142,7 +142,7 @@ class ProtonConfigService(
                         append("x-pm-appversion", "android-vpn@5.0.0")
                         append("x-pm-locale", "en_US")
                     }
-                    contentType(io.ktor.http.ContentType.Application.Json)
+                    header("Content-Type", "application/json")
                     setBody(challengePayload())
                 }
                 .body()
@@ -157,7 +157,7 @@ class ProtonConfigService(
                     append("x-pm-uid", phase0.UID)
                     append("Authorization", "Bearer ${phase0.AccessToken}")
                 }
-                contentType(io.ktor.http.ContentType.Application.Json)
+                header("Content-Type", "application/json")
                 setBody(challengePayload())
             }
             .body()
@@ -217,7 +217,7 @@ class ProtonConfigService(
                     append("x-pm-uid", uid)
                     append("Authorization", "Bearer $accessToken")
                 }
-                contentType(io.ktor.http.ContentType.Application.Json)
+                header("Content-Type", "application/json")
                 setBody(
                     ProtonCertificateRequestDto(
                         ClientPublicKey = clientPubPem,
