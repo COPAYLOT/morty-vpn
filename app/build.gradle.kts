@@ -276,7 +276,7 @@ dependencies {
     }
 
     // Ed25519/X25519 crypto for Proton VPN key generation
-    implementation(libs.bouncycastle-prov)
+    implementation(libs.bouncycastleProv)
 
     // DI
     implementation(platform(libs.koin.bom))
