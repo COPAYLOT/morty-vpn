@@ -41,9 +41,12 @@ object ProtonCrypto {
         val priv = pair.private as Ed25519PrivateKeyParameters
         val pub = pair.public as Ed25519PublicKeyParameters
 
-        // libsodium convention: full ed25519 sk = seed (32) || pub (32) — BC's
-        // Ed25519PrivateKeyParameters.encoded already returns those 64 bytes.
-        val x25519Priv = ed25519PrivateToX25519(priv.encoded)
+        // libsodium convention: full ed25519 sk = seed (32) || pub (32).
+        // BC's Ed25519PrivateKeyParameters.encoded returns ONLY the 32-byte
+        // seed (IETF format), not the 64-byte libsodium form. Build the
+        // 64-byte form manually by appending the public key.
+        val fullSecretKey = priv.seed + pub.encoded
+        val x25519Priv = ed25519PrivateToX25519(fullSecretKey)
 
         val pem = encodeEd25519PublicAsPem(pub.encoded)
 
@@ -60,7 +63,11 @@ object ProtonCrypto {
      * output: SHA-512(input)[0..32] with RFC 7748 clamping.
      */
     private fun ed25519PrivateToX25519(full: ByteArray): ByteArray {
-        require(full.size == 64)
+        require(full.size == 64) {
+            "Expected 64-byte ed25519 secret key (seed||pub), got ${full.size} bytes. " +
+                "BouncyCastle's Ed25519PrivateKeyParameters.encoded is just the 32-byte " +
+                "seed; concatenate the public key bytes yourself before calling."
+        }
         val md = MessageDigest.getInstance("SHA-512")
         md.update(full)
         val hash = md.digest()
