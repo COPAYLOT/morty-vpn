@@ -2,8 +2,7 @@ package com.zaneschepke.wireguardautotunnel.domain.service
 
 import android.util.Base64
 import com.zaneschepke.wireguardautotunnel.data.crypto.ProtonCrypto
-import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyProxyResponse
-import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyProxyServer
+import com.zaneschepke.wireguardautotunnel.data.network.ProtonProxyClient
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ObfuscationParams
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateRequestDto
@@ -17,18 +16,9 @@ import com.zaneschepke.wireguardautotunnel.domain.model.TunnelConfig
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
 import com.zaneschepke.wireguardautotunnel.util.extensions.saveTunnelsUniquely
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.get
-import io.ktor.client.request.headers
-import io.ktor.client.request.parameter
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HeadersBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import timber.log.Timber
 
 /**
@@ -42,16 +32,21 @@ import timber.log.Timber
  *   5. POST /vpn/v1/certificate (1 year, persistent)
  *   6. Build a WireGuard [Interface]/[Peer] .conf per country and save
  *
- * Each request sets ONLY the headers Proton actually requires: User-Agent,
- * Accept: application/vnd.protonmail.v1+json, x-pm-appversion, x-pm-locale,
- * and — for authenticated calls — x-pm-uid + Authorization: Bearer.
- * Content-Type is set automatically by Ktor's ContentNegotiation plugin
- * when `setBody(DTO)` is used (we never manually set it).
+ * All Proton API calls go through [proxyClient] (the user's Apps Script
+ * HTTP proxy). The proxy is a generic forwarder that does the actual
+ * HTTPS call to api.protonvpn.ch from the user's machine, where the
+ * network has access. The APK sends `?op=proxy&url=...&method=...`
+ * with the original Proton request body + headers as URL params.
+ *
+ * Obfuscation is fetched SEPARATELY by [obfuscationRepository] from a
+ * separate script (the existing `?op=wg_obfuskate` endpoint, which the
+ * user does not touch). It does not flow through this proxy.
  */
 class ProtonConfigService(
     private val httpClient: HttpClient,
     private val tunnelRepository: TunnelRepository,
     private val obfuscationRepository: ObfuscationRepository,
+    private val proxyClient: ProtonProxyClient,
 ) {
     companion object {
         private const val API_HOST = "https://api.protonvpn.ch"
@@ -65,15 +60,14 @@ class ProtonConfigService(
         private const val USER_AGENT = "ProtonVPN/5.0.0 (Android 14; Pixel 7)"
 
         /**
-         * Apps Script proxy URL. The script is expected to expose:
-         *   ?op=full          → returns MortyProxyResponse (JSON, all servers + cert)
-         *   ?op=wg_obfuskate   → returns plain-text AmneziaWG obfuscation block
-         *
-         * If the script is down (or returns non-2xx, or `ok=false`) we
-         * silently fall back to direct Proton API calls.
+         * Apps Script proxy URL (the user's deployed Web App). The script
+         * is a generic HTTP forwarder: it accepts `?op=proxy&url=...&method=...`
+         * and forwards the request to Proton, returning the response as
+         * JSON. All 4 Proton calls in this service go through this proxy.
          */
-        const val PROXY_BASE_URL =
-            "https://script.google.com/macros/s/AKfycbw_tOUivmoyXuBU8OR-Mr8jMrNo3Zws_IymopHMvaQjelmxWozJ1E7Ha8FvnlKJL0uq/exec"
+        const val PROXY_BASE_URL: String = ProtonProxyClient.DEFAULT_BASE_URL
+
+        private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     }
 
     data class SyncResult(
@@ -82,8 +76,6 @@ class ProtonConfigService(
         val total: Int,
         val certSerial: String? = null,
         val error: Throwable? = null,
-        // HTTP status + body of the last failed request, when known. Useful
-        // for surfacing Proton's 4xx error message in the UI snackbar.
         val httpStatus: Int? = null,
         val httpBody: String? = null,
     ) {
@@ -91,71 +83,6 @@ class ProtonConfigService(
     }
 
     suspend fun sync(forceDeleteFirst: Boolean = true): SyncResult =
-        withContext(Dispatchers.IO) {
-            // Try the Apps Script proxy first. The script runs on the user's
-            // machine (which has access to Proton) and returns pre-built .conf
-            // blocks — the APK doesn't need to do crypto. If the proxy is
-            // missing, returns ok=false, or any other failure → silently
-            // fall back to the direct Proton flow.
-            val proxyResult =
-                runCatching { syncViaProxy(forceDeleteFirst) }.getOrNull()
-            if (proxyResult != null && proxyResult.isSuccess && proxyResult.added > 0) {
-                Timber.d("Proton sync via proxy: ${proxyResult.added} imported")
-                return@withContext proxyResult
-            }
-            if (proxyResult != null) {
-                Timber.w("Proxy returned ${proxyResult.added}/${proxyResult.failed} — falling back to direct Proton")
-            } else {
-                Timber.w("Proxy failed — falling back to direct Proton")
-            }
-            syncDirect(forceDeleteFirst)
-        }
-
-    /**
-     * Fetch the full server list from the Apps Script proxy at `?op=full`.
-     * The script handles login + logicals + cert + obfuscation +
-     * config building on the user's machine. We just parse and save.
-     */
-    private suspend fun syncViaProxy(forceDeleteFirst: Boolean): SyncResult =
-        withContext(Dispatchers.IO) {
-            val response: MortyProxyResponse =
-                httpClient.get("$PROXY_BASE_URL?op=full").body()
-            if (!response.ok) {
-                throw IllegalStateException("Proxy returned ok=false")
-            }
-            if (response.servers.isEmpty()) {
-                throw IllegalStateException("Proxy returned 0 servers")
-            }
-            val obf =
-                response.obfuscation?.let { ObfuscationParams.parse(it) }
-                    ?: ObfuscationParams("", emptyList())
-
-            val parsed = response.servers.mapNotNull { server ->
-                try {
-                    TunnelConfig(
-                        name = server.name.ifBlank { server.country },
-                        quickConfig = buildConfigFromProxy(server, obf),
-                    )
-                } catch (e: Exception) {
-                    Timber.w(e, "Proxy server '${server.name}' produced invalid config")
-                    null
-                }
-            }
-            if (parsed.isNotEmpty()) persistConfigs(parsed, forceDeleteFirst)
-            SyncResult(
-                added = parsed.size,
-                failed = response.servers.size - parsed.size,
-                total = response.servers.size,
-                certSerial = response.certSerial,
-            )
-        }
-
-    /**
-     * Direct-to-Proton path used as fallback when the proxy is unavailable.
-     * Unchanged from the previous implementation; just split out so the
-     * caller (`sync()`) can choose which one to run.
-     */
-    private suspend fun syncDirect(forceDeleteFirst: Boolean): SyncResult =
         withContext(Dispatchers.IO) {
             try {
                 val session = anonymousLogin()
@@ -184,7 +111,7 @@ class ProtonConfigService(
 
                 if (broken > 0 || parseErrors > 0) {
                     Timber.w(
-                        "Proton direct sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
+                        "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
                     )
                 }
 
@@ -197,26 +124,8 @@ class ProtonConfigService(
                     certSerial = cert.SerialNumber,
                 )
             } catch (e: Exception) {
-                Timber.w(e, "Proton direct sync failed")
-                // Try to extract HTTP status/body from the exception chain. Ktor
-                // wraps 4xx/5xx in ClientRequestException/ServerResponseException
-                // (both have a `response` field); io.ktor wraps it further.
-                var status: Int? = null
-                var body: String? = null
-                var cause: Throwable? = e
-                while (cause != null) {
-                    if (cause is io.ktor.client.plugins.ResponseException) {
-                        status = cause.response.status.value
-                        body = runCatching { cause.response.bodyAsText() }.getOrNull()
-                        break
-                    }
-                    if (cause is ProtonHttpException) {
-                        status = cause.status ?: status
-                        body = cause.body ?: body
-                        break
-                    }
-                    cause = cause.cause
-                }
+                Timber.w(e, "Proton sync failed")
+                val (status, body) = unwrapHttp(e)
                 SyncResult(
                     added = 0,
                     failed = 0,
@@ -228,30 +137,8 @@ class ProtonConfigService(
             }
         }
 
-    /**
-     * Build a WireGuard `.conf` text from a single proxy server entry.
-     * Inserts the obfuscation block between [Interface] and [Peer] if
-     * present.
-     */
-    private fun buildConfigFromProxy(
-        server: MortyProxyServer,
-        obf: ObfuscationParams,
-    ): String {
-        val obfBlock = if (obf.isEmpty()) "" else obf.toConfigLines() + "\n"
-        return "[Interface]\n" +
-            "PrivateKey = ${server.x25519PrivateKey}\n" +
-            "Address = 10.2.0.2/32\n" +
-            "DNS = 10.2.0.1\n" +
-            obfBlock +
-            "[Peer]\n" +
-            "PublicKey = ${server.x25519PublicKey}\n" +
-            "AllowedIPs = 0.0.0.0/0, ::/0\n" +
-            "Endpoint = ${server.entryIp}:$WG_PORT\n" +
-            "PersistentKeepalive = 25\n"
-    }
-
     // ------------------------------------------------------------------------
-    // credentialLess login
+    // credentialLess login (Phase 0 + Phase 1)
     // ------------------------------------------------------------------------
 
     private fun challengePayload(): ProtonChallengePayload =
@@ -277,61 +164,56 @@ class ProtonConfigService(
             )
         )
 
-    /**
-     * Populate the request's `HeadersBuilder` with Proton-required headers.
-     * Called as `headers { addCommonProtonHeaders(...) }` so the same receiver
-     * Kotlin's Ktor passes into the `headers {}` block is mutated in-place.
-     *
-     * Content-Type is set once here so the request only carries ONE
-     * Content-Type header. Ktor's ContentNegotiation would also try to set
-     * it via `setBody(DTO)`, so we don't rely on auto-detection.
-     */
-    private fun HeadersBuilder.addCommonProtonHeaders(
-        uid: String? = null,
-        token: String? = null,
-    ) {
-        append("User-Agent", USER_AGENT)
-        append("Accept", "application/vnd.protonmail.v1+json")
-        append("Content-Type", "application/json")
-        append("x-pm-appversion", APP_VERSION)
-        append("x-pm-locale", APP_LOCALE)
-        if (uid != null) append("x-pm-uid", uid)
-        if (token != null) append("Authorization", "Bearer $token")
-    }
+    /** Headers Proton always requires (no auth). */
+    private fun commonHeaders(): Map<String, String> =
+        mapOf(
+            "User-Agent" to USER_AGENT,
+            "Accept" to "application/vnd.protonmail.v1+json",
+            "x-pm-appversion" to APP_VERSION,
+            "x-pm-locale" to APP_LOCALE,
+        )
+
+    /** Same plus auth headers. */
+    private fun commonHeaders(uid: String, token: String): Map<String, String> =
+        commonHeaders() +
+            mapOf("x-pm-uid" to uid, "Authorization" to "Bearer $token")
 
     private suspend fun anonymousLogin(): ProtonSessionDto {
         Timber.d("Proton: Phase 0 (sessions)…")
-        val phase0: ProtonSessionDto =
-            httpClient
-                .post("$API_HOST$API_PREFIX/auth/v4/sessions") {
-                    headers { addCommonProtonHeaders() }
-                    setBody(challengePayload())
-                }
-                .body()
+        val payload = json.encodeToString(challengePayload())
+        val phase0Body =
+            proxyClient.request(
+                "POST",
+                "$API_HOST$API_PREFIX/auth/v4/sessions",
+                commonHeaders(),
+                payload,
+            ).body
+        val phase0 = json.decodeFromString<ProtonSessionDto>(phase0Body)
         Timber.d("Proton: Phase 1 (credentialless)…")
-        return httpClient
-            .post("$API_HOST$API_PREFIX/auth/v4/credentialless") {
-                headers { addCommonProtonHeaders(phase0.UID, phase0.AccessToken) }
-                setBody(challengePayload())
-            }
-            .body()
+        val phase1Body =
+            proxyClient.request(
+                "POST",
+                "$API_HOST$API_PREFIX/auth/v4/credentialless",
+                commonHeaders(phase0.UID, phase0.AccessToken),
+                payload,
+            ).body
+        return json.decodeFromString<ProtonSessionDto>(phase1Body)
     }
 
     // ------------------------------------------------------------------------
     // servers
     // ------------------------------------------------------------------------
 
-    private suspend fun fetchServers(accessToken: String, uid: String):
-        List<ProtonLogicalServerDto> {
+    private suspend fun fetchServers(
+        accessToken: String,
+        uid: String,
+    ): List<ProtonLogicalServerDto> {
         Timber.d("Proton: GET /logicals…")
-        return httpClient
-            .get("$API_HOST$API_PREFIX/vpn/v1/logicals") {
-                headers { addCommonProtonHeaders(uid, accessToken) }
-                parameter("SecureCoreFilter", "all")
-                parameter("WithState", "true")
-            }
-            .body<ProtonLogicalServersDto>()
-            .LogicalServers
+        val url =
+            "$API_HOST$API_PREFIX/vpn/v1/logicals?SecureCoreFilter=all&WithState=true"
+        val body =
+            proxyClient.request("GET", url, commonHeaders(uid, accessToken)).body
+        return json.decodeFromString<ProtonLogicalServersDto>(body).LogicalServers
     }
 
     private fun pickBestPerCountry(
@@ -356,18 +238,22 @@ class ProtonConfigService(
         clientPubPem: String,
     ): ProtonCertificateDto {
         Timber.d("Proton: POST /certificate…")
-        return httpClient
-            .post("$API_HOST$API_PREFIX/vpn/v1/certificate") {
-                headers { addCommonProtonHeaders(uid, accessToken) }
-                setBody(
-                    ProtonCertificateRequestDto(
-                        ClientPublicKey = clientPubPem,
-                        DeviceName = DEVICE_NAME,
-                        Mode = CERT_MODE,
-                    )
+        val body =
+            proxyClient
+                .request(
+                    "POST",
+                    "$API_HOST$API_PREFIX/vpn/v1/certificate",
+                    commonHeaders(uid, accessToken),
+                    json.encodeToString(
+                        ProtonCertificateRequestDto(
+                            ClientPublicKey = clientPubPem,
+                            DeviceName = DEVICE_NAME,
+                            Mode = CERT_MODE,
+                        )
+                    ),
                 )
-            }
-            .body()
+                .body
+        return json.decodeFromString<ProtonCertificateDto>(body)
     }
 
     // ------------------------------------------------------------------------
@@ -393,9 +279,6 @@ class ProtonConfigService(
                 continue
             }
             val name = "${flagEmoji(country)} $country"
-            // Inject AmneziaWG-style obfuscation parameters between [Interface]
-            // and the empty line that precedes [Peer]. If obfuscation is empty
-            // (network failure + no DataStore cache), tunnels stay plain WG.
             val conf =
                 "[Interface]\n" +
                     "PrivateKey = $xPrivB64\n" +
@@ -441,44 +324,31 @@ class ProtonConfigService(
     }
 
     /**
-     * Wrap a request so the response body is captured and accessible from
-     * the catch block via `HttpResponseException.response.bodyAsText()`.
-     * Also returns the parsed body of a 2xx response.
+     * Walk the exception chain to extract HTTP status + body for the
+     * snackbar. The proxy wraps non-2xx responses in [ProtonHttpException]
+     * which carries the actual Proton response text; this surfaces it
+     * to the UI instead of generic "Fetch failed".
      */
-    private suspend fun httpCallJson(
-        description: String,
-        block: suspend () -> HttpResponse,
-    ): String =
-        try {
-            val r = block()
-            r.bodyAsText()
-        } catch (e: io.ktor.client.plugins.ClientRequestException) {
-            // 4xx
-            val body = runCatching { e.response.bodyAsText() }.getOrDefault("")
-            throw ProtonHttpException(
-                "$description: HTTP ${e.response.status.value} ${e.response.status.description}",
-                e.response.status.value,
-                body.take(400),
-                e,
-            )
-        } catch (e: io.ktor.client.plugins.ServerResponseException) {
-            // 5xx
-            val body = runCatching { e.response.bodyAsText() }.getOrDefault("")
-            throw ProtonHttpException(
-                "$description: HTTP ${e.response.status.value} ${e.response.status.description}",
-                e.response.status.value,
-                body.take(400),
-                e,
-            )
-        } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
-            throw ProtonHttpException("$description: request timeout", null, null, e)
-        } catch (e: java.net.UnknownHostException) {
-            throw ProtonHttpException("$description: no network / DNS failure", null, null, e)
-        } catch (e: java.io.IOException) {
-            throw ProtonHttpException("$description: ${e.javaClass.simpleName} ${e.message}", null, null, e)
+    private fun unwrapHttp(e: Throwable): Pair<Int?, String?> {
+        var status: Int? = null
+        var body: String? = null
+        var cause: Throwable? = e
+        while (cause != null) {
+            if (cause is ProtonHttpException) {
+                status = cause.status ?: status
+                body = cause.body ?: body
+                break
+            }
+            cause = cause.cause
         }
+        return status to body
+    }
 }
 
+/**
+ * Thrown when the proxy reports a non-2xx Proton response. Carries the
+ * actual status + body so the snackbar can show the real reason.
+ */
 class ProtonHttpException(
     message: String,
     val status: Int?,
