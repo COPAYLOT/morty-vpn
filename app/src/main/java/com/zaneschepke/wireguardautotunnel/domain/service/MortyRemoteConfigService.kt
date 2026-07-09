@@ -90,14 +90,20 @@ class MortyRemoteConfigService(
     ): SyncResult {
         // Parse each config separately so one bad entry doesn't kill the batch.
         val parsed = mutableListOf<TunnelConfig>()
-        var failed = 0
+        var brokenPeer = 0
+        var parseErrors = 0
         for (server in servers) {
-            val (tunnel, ok) = parseAndValidate(server)
-            if (ok && tunnel != null) {
-                parsed += tunnel
-            } else {
-                failed++
+            when (val result = parseAndValidate(server)) {
+                is ParseResult.Ok -> parsed += result.tunnel
+                ParseResult.MissingPeer -> brokenPeer++
+                is ParseResult.Error -> parseErrors++
             }
+        }
+
+        if (brokenPeer > 0 || parseErrors > 0) {
+            Timber.w(
+                "Remote sync: ${parsed.size} ok, $brokenPeer missing peer data, $parseErrors parse errors (${servers.size} total)",
+            )
         }
 
         if (forceDeleteFirst) {
@@ -117,39 +123,40 @@ class MortyRemoteConfigService(
         dataStoreManager.saveToDataStore(SYNCED_ONCE_KEY, true)
         return SyncResult(
             added = parsed.size,
-            failed = failed,
+            failed = brokenPeer + parseErrors,
             total = servers.size,
         )
     }
 
     /**
-     * Parse a remote server's `.conf` text and reject configs that have no
-     * usable [Peer] block. The Google Apps Script endpoint sometimes ships
-     * configs with `PublicKey = ` and `Endpoint = :51820` (no hostname),
-     * which WireGuard's IPC will reject at tunnel-start time and cause the
-     * VPN toggle to flip back to OFF immediately.
-     *
-     * @return pair of (parsed TunnelConfig or null, success boolean)
+     * Result of validating a single remote server's `.conf` text against
+     * the minimum requirements for a working tunnel:
+     * - parses cleanly via [Config.parseQuickString], and
+     * - has at least one peer with both a public key and an endpoint.
      */
-    private fun parseAndValidate(server: MortyRemoteServerDto): Pair<TunnelConfig?, Boolean> {
+    private sealed interface ParseResult {
+        data class Ok(val tunnel: TunnelConfig) : ParseResult
+        data object MissingPeer : ParseResult
+        data class Error(val throwable: Throwable) : ParseResult
+    }
+
+    private fun parseAndValidate(server: MortyRemoteServerDto): ParseResult {
         val trimmedConfig = server.config.trim()
         val trimmedName = server.name.trim()
         val parsedConfig = try {
             Config.parseQuickString(trimmedConfig)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to parse config for '${server.name}'")
-            return null to false
+            return ParseResult.Error(e)
         }
         val hasUsablePeer = parsedConfig.peers.any { peer ->
             peer.publicKey.isNotBlank() && !peer.endpoint.isNullOrBlank()
         }
-        if (!hasUsablePeer) {
-            Timber.w("Skipping remote server '${server.name}': [Peer] block is missing PublicKey/Endpoint (server script is broken)")
-            return null to false
-        }
-        return TunnelConfig(
-            name = parsedConfig.name ?: trimmedName,
-            quickConfig = trimmedConfig,
-        ) to true
+        if (!hasUsablePeer) return ParseResult.MissingPeer
+        return ParseResult.Ok(
+            TunnelConfig(
+                name = parsedConfig.name ?: trimmedName,
+                quickConfig = trimmedConfig,
+            )
+        )
     }
 }

@@ -74,23 +74,18 @@ class AppBoostrapCoordinator(
         // Hard gate: only sync once per install. The DataStore flag
         // MORTY_REMOTE_SYNCED_ONCE is set to true by the service after a
         // successful sync, so subsequent app launches skip this entirely.
-        if (mortyRemoteConfigService.hasSyncedOnce()) {
-            Timber.d("Remote config already synced on a previous launch, skipping")
-            return
-        }
+        if (mortyRemoteConfigService.hasSyncedOnce()) return
         _isRemoteSyncing.value = true
         try {
             val result = mortyRemoteConfigService.sync(forceDeleteFirst = false)
             _bootstrapRemoteResult.value = result
-            if (result.isSuccess) {
-                Timber.d("Morty remote config bootstrap: ${result.added}/${result.total} added (${result.failed} failed)")
-            } else {
-                Timber.w(result.error, "Morty remote config bootstrap failed (non-fatal)")
+            if (!result.isSuccess) {
+                Timber.w(result.error, "Remote config sync failed (non-fatal)")
             }
         } catch (e: Exception) {
             _bootstrapRemoteResult.value =
                 MortyRemoteConfigService.SyncResult(0, 0, 0, e)
-            Timber.e(e, "Morty remote config bootstrap threw (non-fatal)")
+            Timber.w(e, "Remote config sync threw (non-fatal)")
         } finally {
             _isRemoteSyncing.value = false
         }
