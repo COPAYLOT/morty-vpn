@@ -19,6 +19,8 @@ import io.ktor.client.request.headers
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HeadersBuilder
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,10 @@ class ProtonConfigService(
         val total: Int,
         val certSerial: String? = null,
         val error: Throwable? = null,
+        // HTTP status + body of the last failed request, when known. Useful
+        // for surfacing Proton's 4xx error message in the UI snackbar.
+        val httpStatus: Int? = null,
+        val httpBody: String? = null,
     ) {
         val isSuccess: Boolean get() = error == null
     }
@@ -109,7 +115,33 @@ class ProtonConfigService(
                 )
             } catch (e: Exception) {
                 Timber.w(e, "Proton sync failed")
-                SyncResult(0, 0, 0, error = e)
+                // Try to extract HTTP status/body from the exception chain. Ktor
+                // wraps 4xx/5xx in ClientRequestException/ServerResponseException
+                // (both have a `response` field); io.ktor wraps it further.
+                var status: Int? = null
+                var body: String? = null
+                var cause: Throwable? = e
+                while (cause != null) {
+                    if (cause is io.ktor.client.plugins.ResponseException) {
+                        status = cause.response.status.value
+                        body = runCatching { cause.response.bodyAsText() }.getOrNull()
+                        break
+                    }
+                    if (cause is ProtonHttpException) {
+                        status = cause.status ?: status
+                        body = cause.body ?: body
+                        break
+                    }
+                    cause = cause.cause
+                }
+                SyncResult(
+                    added = 0,
+                    failed = 0,
+                    total = 0,
+                    error = e,
+                    httpStatus = status,
+                    httpBody = body?.take(400),
+                )
             }
         }
 
@@ -297,4 +329,49 @@ class ProtonConfigService(
         return String(Character.toChars(first)) +
             String(Character.toChars(second))
     }
+
+    /**
+     * Wrap a request so the response body is captured and accessible from
+     * the catch block via `HttpResponseException.response.bodyAsText()`.
+     * Also returns the parsed body of a 2xx response.
+     */
+    private suspend fun httpCallJson(
+        description: String,
+        block: suspend () -> HttpResponse,
+    ): String =
+        try {
+            val r = block()
+            r.bodyAsText()
+        } catch (e: io.ktor.client.plugins.ClientRequestException) {
+            // 4xx
+            val body = runCatching { e.response.bodyAsText() }.getOrDefault("")
+            throw ProtonHttpException(
+                "$description: HTTP ${e.response.status.value} ${e.response.status.description}",
+                e.response.status.value,
+                body.take(400),
+                e,
+            )
+        } catch (e: io.ktor.client.plugins.ServerResponseException) {
+            // 5xx
+            val body = runCatching { e.response.bodyAsText() }.getOrDefault("")
+            throw ProtonHttpException(
+                "$description: HTTP ${e.response.status.value} ${e.response.status.description}",
+                e.response.status.value,
+                body.take(400),
+                e,
+            )
+        } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
+            throw ProtonHttpException("$description: request timeout", null, null, e)
+        } catch (e: java.net.UnknownHostException) {
+            throw ProtonHttpException("$description: no network / DNS failure", null, null, e)
+        } catch (e: java.io.IOException) {
+            throw ProtonHttpException("$description: ${e.javaClass.simpleName} ${e.message}", null, null, e)
+        }
 }
+
+class ProtonHttpException(
+    message: String,
+    val status: Int?,
+    val body: String?,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)

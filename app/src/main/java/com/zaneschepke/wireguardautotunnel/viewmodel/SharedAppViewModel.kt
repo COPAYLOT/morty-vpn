@@ -116,8 +116,7 @@ class SharedAppViewModel(
             bootstrapRemoteResult.collect { result ->
                 if (result != null) {
                     val msg = when {
-                        !result.isSuccess ->
-                            "Proton sync failed: ${result.error?.message?.take(60) ?: "unknown"}"
+                        !result.isSuccess -> formatError(result)
                         result.added == 0 ->
                             "No servers imported (all ${result.total} broken)"
                         result.failed > 0 ->
@@ -133,6 +132,19 @@ class SharedAppViewModel(
                     showSnackMessage(StringValue.DynamicString(msg), type)
                 }
             }
+        }
+    }
+
+    private fun formatError(result: ProtonConfigService.SyncResult): String {
+        val status = result.httpStatus?.let { "HTTP $it " } ?: ""
+        val body = result.httpBody?.trim()?.take(120)
+        val exMsg = result.error?.message?.take(80)
+        return when {
+            !body.isNullOrBlank() ->
+                "Proton ${status}failed: $body"
+            !exMsg.isNullOrBlank() ->
+                "Proton failed: $exMsg"
+            else -> "Proton sync failed (no detail)"
         }
     }
 
@@ -348,7 +360,7 @@ class SharedAppViewModel(
             )
         } else {
             showSnackMessage(
-                StringValue.StringResource(R.string.morty_fetch_failed),
+                StringValue.DynamicString(formatError(result)),
                 ToastType.Error,
             )
         }
