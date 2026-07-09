@@ -17,6 +17,8 @@ import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
 import com.zaneschepke.wireguardautotunnel.util.extensions.saveTunnelsUniquely
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import timber.log.Timber
@@ -85,44 +87,63 @@ class ProtonConfigService(
     suspend fun sync(forceDeleteFirst: Boolean = true): SyncResult =
         withContext(Dispatchers.IO) {
             try {
-                val session = anonymousLogin()
-                val servers = fetchServers(session.AccessToken, session.UID)
-                val best = pickBestPerCountry(servers)
-                if (best.isEmpty()) {
-                    return@withContext SyncResult(
-                        added = 0,
-                        failed = 0,
-                        total = 0,
-                        error = IllegalStateException("No free servers in Proton response"),
+                coroutineScope {
+                    // 1. Phase 0 + obfuscation (independent) run in parallel.
+                    val phase0Job = async { anonymousLoginPhase0() }
+                    val obfJob = async { obfuscationRepository.get() }
+
+                    // 2. Phase 1 depends on Phase 0's UID + token.
+                    val phase0 = phase0Job.await()
+                    val phase1Job =
+                        async { anonymousLoginPhase1(phase0.uid, phase0.accessToken) }
+
+                    // 3. /logicals + /certificate both depend on Phase 1; can
+                    //    run in parallel. /certificate also needs the new keypair.
+                    val phase1 = phase1Job.await()
+                    val keypair = ProtonCrypto.generateKeypair()
+                    val serversJob =
+                        async { fetchServers(phase1.accessToken, phase1.uid) }
+                    val certJob =
+                        async {
+                            requestCertificate(
+                                phase1.accessToken,
+                                phase1.uid,
+                                keypair.ed25519PublicPem,
+                            )
+                        }
+
+                    val servers = serversJob.await()
+                    val cert = certJob.await()
+                    val obfuscation = obfJob.await()
+
+                    val best = pickBestPerCountry(servers)
+                    if (best.isEmpty()) {
+                        return@coroutineScope SyncResult(
+                            added = 0,
+                            failed = 0,
+                            total = 0,
+                            error = IllegalStateException("No free servers in Proton response"),
+                        )
+                    }
+
+                    val (parsed, broken, parseErrors) =
+                        buildAndCollectConfigs(best, keypair.x25519Private)
+
+                    if (broken > 0 || parseErrors > 0) {
+                        Timber.w(
+                            "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
+                        )
+                    }
+
+                    persistConfigs(parsed, forceDeleteFirst)
+
+                    SyncResult(
+                        added = parsed.size,
+                        failed = broken + parseErrors,
+                        total = best.size,
+                        certSerial = cert.SerialNumber,
                     )
                 }
-
-                val keypair = ProtonCrypto.generateKeypair()
-                val cert = requestCertificate(
-                    session.AccessToken,
-                    session.UID,
-                    keypair.ed25519PublicPem,
-                )
-
-                val obfuscation = obfuscationRepository.get()
-
-                val (parsed, broken, parseErrors) =
-                    buildAndCollectConfigs(best, keypair.x25519Private, obfuscation)
-
-                if (broken > 0 || parseErrors > 0) {
-                    Timber.w(
-                        "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
-                    )
-                }
-
-                persistConfigs(parsed, forceDeleteFirst)
-
-                SyncResult(
-                    added = parsed.size,
-                    failed = broken + parseErrors,
-                    total = best.size,
-                    certSerial = cert.SerialNumber,
-                )
             } catch (e: Exception) {
                 Timber.w(e, "Proton sync failed")
                 val (status, body) = unwrapHttp(e)
@@ -178,26 +199,32 @@ class ProtonConfigService(
         commonHeaders() +
             mapOf("x-pm-uid" to uid, "Authorization" to "Bearer $token")
 
-    private suspend fun anonymousLogin(): ProtonSessionDto {
+    /** Phase 0 of the credentialLess login. Returns the session + UID. */
+    private suspend fun anonymousLoginPhase0(): ProtonSessionDto {
         Timber.d("Proton: Phase 0 (sessions)…")
         val payload = json.encodeToString(challengePayload())
-        val phase0Body =
+        val body =
             proxyClient.request(
                 "POST",
                 "$API_HOST$API_PREFIX/auth/v4/sessions",
                 commonHeaders(),
                 payload,
             ).body
-        val phase0 = json.decodeFromString<ProtonSessionDto>(phase0Body)
+        return json.decodeFromString<ProtonSessionDto>(body)
+    }
+
+    /** Phase 1 of the credentialLess login. Needs UID + token from Phase 0. */
+    private suspend fun anonymousLoginPhase1(uid: String, accessToken: String): ProtonSessionDto {
         Timber.d("Proton: Phase 1 (credentialless)…")
-        val phase1Body =
+        val payload = json.encodeToString(challengePayload())
+        val body =
             proxyClient.request(
                 "POST",
                 "$API_HOST$API_PREFIX/auth/v4/credentialless",
-                commonHeaders(phase0.UID, phase0.AccessToken),
+                commonHeaders(uid, accessToken),
                 payload,
             ).body
-        return json.decodeFromString<ProtonSessionDto>(phase1Body)
+        return json.decodeFromString<ProtonSessionDto>(body)
     }
 
     // ------------------------------------------------------------------------
@@ -263,13 +290,16 @@ class ProtonConfigService(
     private fun buildAndCollectConfigs(
         best: Map<String, ProtonLogicalServerDto>,
         x25519Private: ByteArray,
-        obfuscation: ObfuscationParams,
     ): Triple<List<TunnelConfig>, Int, Int> {
         val parsed = mutableListOf<TunnelConfig>()
         var broken = 0
         var parseErrors = 0
         val xPrivB64 = Base64.encodeToString(x25519Private, Base64.NO_WRAP)
-        val obfBlock = if (obfuscation.isEmpty()) "" else obfuscation.toConfigLines() + "\n"
+        // NOTE: do NOT inject AmneziaWG obfuscation params here. Proton VPN
+        // free tier is plain WireGuard — adding Jc/S1/H1/etc. produces
+        // non-standard init packets that the server drops. The
+        // ObfuscationParams fetch still happens (for diagnostics / future
+        // use) but the params are not embedded in the [Interface] block.
         for ((country, server) in best) {
             val first = server.Servers.firstOrNull()
             val entryIp = first?.EntryIP.orEmpty()

@@ -71,6 +71,16 @@ class AppBoostrapCoordinator(
     }
 
     private suspend fun bootstrapRemoteConfig() {
+        // Skip the entire Proton sync if we already have tunnels in the DB
+        // (e.g. on every launch after the first successful sync). This avoids
+        // a ~10-15s re-download on every cold start and is the main fix for
+        // the "long black screen" + "re-downloads after crash" complaints.
+        // To force a refresh, the user taps the "Get new servers" menu
+        // action, which calls sync(forceDeleteFirst = true) directly.
+        if (tunnelRepository.getAll().isNotEmpty()) {
+            Timber.d("Skipping bootstrap Proton sync: tunnels already in DB")
+            return
+        }
         // Proton VPN syncs are non-critical and rare (once per install).
         // forceDeleteFirst = false so we never clobber an existing user config.
         _isRemoteSyncing.value = true
