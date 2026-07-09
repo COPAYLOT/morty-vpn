@@ -95,19 +95,19 @@ class ProtonConfigService(
                     // 2. Phase 1 depends on Phase 0's UID + token.
                     val phase0 = phase0Job.await()
                     val phase1Job =
-                        async { anonymousLoginPhase1(phase0.uid, phase0.accessToken) }
+                        async { anonymousLoginPhase1(phase0.UID, phase0.AccessToken) }
 
                     // 3. /logicals + /certificate both depend on Phase 1; can
                     //    run in parallel. /certificate also needs the new keypair.
                     val phase1 = phase1Job.await()
                     val keypair = ProtonCrypto.generateKeypair()
                     val serversJob =
-                        async { fetchServers(phase1.accessToken, phase1.uid) }
+                        async { fetchServers(phase1.AccessToken, phase1.UID) }
                     val certJob =
                         async {
                             requestCertificate(
-                                phase1.accessToken,
-                                phase1.uid,
+                                phase1.AccessToken,
+                                phase1.UID,
                                 keypair.ed25519PublicPem,
                             )
                         }
@@ -314,7 +314,6 @@ class ProtonConfigService(
                     "PrivateKey = $xPrivB64\n" +
                     "Address = 10.2.0.2/32\n" +
                     "DNS = 10.2.0.1\n" +
-                    obfBlock +
                     "[Peer]\n" +
                     "PublicKey = $serverPub\n" +
                     "AllowedIPs = 0.0.0.0/0, ::/0\n" +
