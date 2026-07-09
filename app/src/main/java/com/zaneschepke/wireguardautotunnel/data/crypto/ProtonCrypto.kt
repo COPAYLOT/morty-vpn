@@ -45,7 +45,7 @@ object ProtonCrypto {
         // BC's Ed25519PrivateKeyParameters.encoded returns ONLY the 32-byte
         // seed (IETF format), not the 64-byte libsodium form. Build the
         // 64-byte form manually by appending the public key.
-        val fullSecretKey = priv.seed + pub.encoded
+        val fullSecretKey = priv.encoded + pub.encoded
         val x25519Priv = ed25519PrivateToX25519(fullSecretKey)
 
         val pem = encodeEd25519PublicAsPem(pub.encoded)
