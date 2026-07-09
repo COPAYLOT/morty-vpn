@@ -7,7 +7,6 @@ import io.ktor.client.request.get
 import kotlinx.serialization.Serializable
 import timber.log.Timber
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Generic HTTP forwarder that talks to the user's Apps Script proxy.
@@ -66,14 +65,14 @@ class ProtonProxyClient(
     ): Response {
         val params = buildString {
             append("op=proxy")
-            append("&url=").append(URLEncoder.encode(url, StandardCharsets.UTF_8))
+            append("&url=").append(URLEncoder.encode(url, "UTF-8"))
             append("&method=").append(method.uppercase())
             if (headers.isNotEmpty()) {
                 val headersJson = JsonLenient.encodeToString(headers)
-                append("&headers=").append(URLEncoder.encode(headersJson, StandardCharsets.UTF_8))
+                append("&headers=").append(URLEncoder.encode(headersJson, "UTF-8"))
             }
             if (body != null) {
-                append("&body=").append(URLEncoder.encode(body, StandardCharsets.UTF_8))
+                append("&body=").append(URLEncoder.encode(body, "UTF-8"))
             }
         }
         val fullUrl = "$baseUrl?$params"
