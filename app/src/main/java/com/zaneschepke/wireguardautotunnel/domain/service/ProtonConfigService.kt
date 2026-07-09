@@ -90,7 +90,9 @@ class ProtonConfigService(
                 // occasionally hangs. Sequential is slower (~10-15s) but
                 // reliable. The skip-if-tunnels-exist check in the bootstrap
                 // coordinator means this only runs on the very first install.
-                val session = anonymousLogin()
+                val phase0 = anonymousLoginPhase0()
+                val phase1 = anonymousLoginPhase1(phase0.UID, phase0.AccessToken)
+                val session = phase1
                 val servers = fetchServers(session.AccessToken, session.UID)
                 val best = pickBestPerCountry(servers)
                 if (best.isEmpty()) {
