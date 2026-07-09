@@ -2,6 +2,7 @@ package com.zaneschepke.wireguardautotunnel.domain.service
 
 import android.util.Base64
 import com.zaneschepke.wireguardautotunnel.data.crypto.ProtonCrypto
+import com.zaneschepke.wireguardautotunnel.data.network.dto.ObfuscationParams
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateRequestDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonChallengeFrame
@@ -9,6 +10,7 @@ import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonChallengePaylo
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonLogicalServerDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonLogicalServersDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonSessionDto
+import com.zaneschepke.wireguardautotunnel.data.repository.ObfuscationRepository
 import com.zaneschepke.wireguardautotunnel.domain.model.TunnelConfig
 import com.zaneschepke.wireguardautotunnel.domain.repository.TunnelRepository
 import com.zaneschepke.wireguardautotunnel.util.extensions.saveTunnelsUniquely
@@ -47,6 +49,7 @@ import timber.log.Timber
 class ProtonConfigService(
     private val httpClient: HttpClient,
     private val tunnelRepository: TunnelRepository,
+    private val obfuscationRepository: ObfuscationRepository,
 ) {
     companion object {
         private const val API_HOST = "https://api.protonvpn.ch"
@@ -96,8 +99,10 @@ class ProtonConfigService(
                     keypair.ed25519PublicPem,
                 )
 
+                val obfuscation = obfuscationRepository.get()
+
                 val (parsed, broken, parseErrors) =
-                    buildAndCollectConfigs(best, keypair.x25519Private)
+                    buildAndCollectConfigs(best, keypair.x25519Private, obfuscation)
 
                 if (broken > 0 || parseErrors > 0) {
                     Timber.w(
@@ -272,11 +277,13 @@ class ProtonConfigService(
     private fun buildAndCollectConfigs(
         best: Map<String, ProtonLogicalServerDto>,
         x25519Private: ByteArray,
+        obfuscation: ObfuscationParams,
     ): Triple<List<TunnelConfig>, Int, Int> {
         val parsed = mutableListOf<TunnelConfig>()
         var broken = 0
         var parseErrors = 0
         val xPrivB64 = Base64.encodeToString(x25519Private, Base64.NO_WRAP)
+        val obfBlock = if (obfuscation.isEmpty()) "" else obfuscation.toConfigLines() + "\n"
         for ((country, server) in best) {
             val first = server.Servers.firstOrNull()
             val entryIp = first?.EntryIP.orEmpty()
@@ -286,12 +293,15 @@ class ProtonConfigService(
                 continue
             }
             val name = "${flagEmoji(country)} $country"
+            // Inject AmneziaWG-style obfuscation parameters between [Interface]
+            // and the empty line that precedes [Peer]. If obfuscation is empty
+            // (network failure + no DataStore cache), tunnels stay plain WG.
             val conf =
                 "[Interface]\n" +
                     "PrivateKey = $xPrivB64\n" +
                     "Address = 10.2.0.2/32\n" +
                     "DNS = 10.2.0.1\n" +
-                    "\n" +
+                    obfBlock +
                     "[Peer]\n" +
                     "PublicKey = $serverPub\n" +
                     "AllowedIPs = 0.0.0.0/0, ::/0\n" +
