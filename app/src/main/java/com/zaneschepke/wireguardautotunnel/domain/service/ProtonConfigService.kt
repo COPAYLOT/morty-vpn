@@ -20,6 +20,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HeadersBuilder
 import io.ktor.http.contentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -145,7 +146,7 @@ class ProtonConfigService(
      * Called as `headers { addCommonProtonHeaders(...) }` so the same receiver
      * Kotlin's Ktor passes into the `headers {}` block is mutated in-place.
      */
-    private fun io.ktor.client.request.HeadersBuilder.addCommonProtonHeaders(
+    private fun HeadersBuilder.addCommonProtonHeaders(
         uid: String? = null,
         token: String? = null,
     ) {
