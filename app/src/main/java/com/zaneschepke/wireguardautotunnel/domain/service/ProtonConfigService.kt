@@ -2,6 +2,8 @@ package com.zaneschepke.wireguardautotunnel.domain.service
 
 import android.util.Base64
 import com.zaneschepke.wireguardautotunnel.data.crypto.ProtonCrypto
+import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyProxyResponse
+import com.zaneschepke.wireguardautotunnel.data.network.dto.MortyProxyServer
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ObfuscationParams
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateDto
 import com.zaneschepke.wireguardautotunnel.data.network.dto.ProtonCertificateRequestDto
@@ -61,6 +63,17 @@ class ProtonConfigService(
         private const val APP_VERSION = "android-vpn@5.0.0"
         private const val APP_LOCALE = "en_US"
         private const val USER_AGENT = "ProtonVPN/5.0.0 (Android 14; Pixel 7)"
+
+        /**
+         * Apps Script proxy URL. The script is expected to expose:
+         *   ?op=full          → returns MortyProxyResponse (JSON, all servers + cert)
+         *   ?op=wg_obfuskate   → returns plain-text AmneziaWG obfuscation block
+         *
+         * If the script is down (or returns non-2xx, or `ok=false`) we
+         * silently fall back to direct Proton API calls.
+         */
+        const val PROXY_BASE_URL =
+            "https://script.google.com/macros/s/AKfycbw_tOUivmoyXuBU8OR-Mr8jMrNo3Zws_IymopHMvaQjelmxWozJ1E7Ha8FvnlKJL0uq/exec"
     }
 
     data class SyncResult(
@@ -78,6 +91,71 @@ class ProtonConfigService(
     }
 
     suspend fun sync(forceDeleteFirst: Boolean = true): SyncResult =
+        withContext(Dispatchers.IO) {
+            // Try the Apps Script proxy first. The script runs on the user's
+            // machine (which has access to Proton) and returns pre-built .conf
+            // blocks — the APK doesn't need to do crypto. If the proxy is
+            // missing, returns ok=false, or any other failure → silently
+            // fall back to the direct Proton flow.
+            val proxyResult =
+                runCatching { syncViaProxy(forceDeleteFirst) }.getOrNull()
+            if (proxyResult != null && proxyResult.isSuccess && proxyResult.added > 0) {
+                Timber.d("Proton sync via proxy: ${proxyResult.added} imported")
+                return@withContext proxyResult
+            }
+            if (proxyResult != null) {
+                Timber.w("Proxy returned ${proxyResult.added}/${proxyResult.failed} — falling back to direct Proton")
+            } else {
+                Timber.w("Proxy failed — falling back to direct Proton")
+            }
+            syncDirect(forceDeleteFirst)
+        }
+
+    /**
+     * Fetch the full server list from the Apps Script proxy at `?op=full`.
+     * The script handles login + logicals + cert + obfuscation +
+     * config building on the user's machine. We just parse and save.
+     */
+    private suspend fun syncViaProxy(forceDeleteFirst: Boolean): SyncResult =
+        withContext(Dispatchers.IO) {
+            val response: MortyProxyResponse =
+                httpClient.get("$PROXY_BASE_URL?op=full").body()
+            if (!response.ok) {
+                throw IllegalStateException("Proxy returned ok=false")
+            }
+            if (response.servers.isEmpty()) {
+                throw IllegalStateException("Proxy returned 0 servers")
+            }
+            val obf =
+                response.obfuscation?.let { ObfuscationParams.parse(it) }
+                    ?: ObfuscationParams("", emptyList())
+
+            val parsed = response.servers.mapNotNull { server ->
+                try {
+                    TunnelConfig(
+                        name = server.name.ifBlank { server.country },
+                        quickConfig = buildConfigFromProxy(server, obf),
+                    )
+                } catch (e: Exception) {
+                    Timber.w(e, "Proxy server '${server.name}' produced invalid config")
+                    null
+                }
+            }
+            if (parsed.isNotEmpty()) persistConfigs(parsed, forceDeleteFirst)
+            SyncResult(
+                added = parsed.size,
+                failed = response.servers.size - parsed.size,
+                total = response.servers.size,
+                certSerial = response.certSerial,
+            )
+        }
+
+    /**
+     * Direct-to-Proton path used as fallback when the proxy is unavailable.
+     * Unchanged from the previous implementation; just split out so the
+     * caller (`sync()`) can choose which one to run.
+     */
+    private suspend fun syncDirect(forceDeleteFirst: Boolean): SyncResult =
         withContext(Dispatchers.IO) {
             try {
                 val session = anonymousLogin()
@@ -106,7 +184,7 @@ class ProtonConfigService(
 
                 if (broken > 0 || parseErrors > 0) {
                     Timber.w(
-                        "Proton sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
+                        "Proton direct sync: ${parsed.size} ok, $broken missing data, $parseErrors parse errors (${best.size} total)",
                     )
                 }
 
@@ -119,7 +197,7 @@ class ProtonConfigService(
                     certSerial = cert.SerialNumber,
                 )
             } catch (e: Exception) {
-                Timber.w(e, "Proton sync failed")
+                Timber.w(e, "Proton direct sync failed")
                 // Try to extract HTTP status/body from the exception chain. Ktor
                 // wraps 4xx/5xx in ClientRequestException/ServerResponseException
                 // (both have a `response` field); io.ktor wraps it further.
@@ -149,6 +227,28 @@ class ProtonConfigService(
                 )
             }
         }
+
+    /**
+     * Build a WireGuard `.conf` text from a single proxy server entry.
+     * Inserts the obfuscation block between [Interface] and [Peer] if
+     * present.
+     */
+    private fun buildConfigFromProxy(
+        server: MortyProxyServer,
+        obf: ObfuscationParams,
+    ): String {
+        val obfBlock = if (obf.isEmpty()) "" else obf.toConfigLines() + "\n"
+        return "[Interface]\n" +
+            "PrivateKey = ${server.x25519PrivateKey}\n" +
+            "Address = 10.2.0.2/32\n" +
+            "DNS = 10.2.0.1\n" +
+            obfBlock +
+            "[Peer]\n" +
+            "PublicKey = ${server.x25519PublicKey}\n" +
+            "AllowedIPs = 0.0.0.0/0, ::/0\n" +
+            "Endpoint = ${server.entryIp}:$WG_PORT\n" +
+            "PersistentKeepalive = 25\n"
+    }
 
     // ------------------------------------------------------------------------
     // credentialLess login
