@@ -41,12 +41,11 @@ object ProtonCrypto {
         val priv = pair.private as Ed25519PrivateKeyParameters
         val pub = pair.public as Ed25519PublicKeyParameters
 
-        // libsodium convention: full ed25519 sk = seed (32) || pub (32).
-        // BC's Ed25519PrivateKeyParameters.encoded returns ONLY the 32-byte
-        // seed (IETF format), not the 64-byte libsodium form. Build the
-        // 64-byte form manually by appending the public key.
-        val fullSecretKey = priv.encoded + pub.encoded
-        val x25519Priv = ed25519PrivateToX25519(fullSecretKey)
+        // libsodium's crypto_sign_ed25519_sk_to_curve25519 hashes ONLY the
+        // 32-byte seed, NOT the 64-byte libsodium secret form. BC's
+        // Ed25519PrivateKeyParameters.encoded already returns the 32-byte
+        // seed in IETF format, which is exactly what we need.
+        val x25519Priv = ed25519PrivateToX25519(priv.encoded)
 
         val pem = encodeEd25519PublicAsPem(pub.encoded)
 
@@ -59,17 +58,19 @@ object ProtonCrypto {
 
     /**
      * Equivalent to libsodium's `crypto_sign_ed25519_sk_to_curve25519`.
-     * input: 64-byte ed25519 sk (= seed || pub).
-     * output: SHA-512(input)[0..32] with RFC 7748 clamping.
+     *
+     * input: 32-byte ed25519 seed (NOT 64-byte secret).
+     *   libsodium: `crypto_hash_sha512(seed, 32, h); take first 32 of h; clamp`
+     * output: 32-byte x25519 priv with RFC 7748 clamping.
      */
-    private fun ed25519PrivateToX25519(full: ByteArray): ByteArray {
-        require(full.size == 64) {
-            "Expected 64-byte ed25519 secret key (seed||pub), got ${full.size} bytes. " +
-                "BouncyCastle's Ed25519PrivateKeyParameters.encoded is just the 32-byte " +
-                "seed; concatenate the public key bytes yourself before calling."
+    private fun ed25519PrivateToX25519(seed: ByteArray): ByteArray {
+        require(seed.size == 32) {
+            "Expected 32-byte ed25519 seed, got ${seed.size} bytes. " +
+                "libSodium's crypto_sign_ed25519_sk_to_curve25519 hashes ONLY the 32-byte " +
+                "seed, not the 64-byte secret. Pass just priv.encoded here."
         }
         val md = MessageDigest.getInstance("SHA-512")
-        md.update(full)
+        md.update(seed)
         val hash = md.digest()
         val x = hash.copyOfRange(0, 32)
         // RFC 7748 §5: clamp the scalar
