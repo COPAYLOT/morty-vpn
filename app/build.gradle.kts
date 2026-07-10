@@ -118,12 +118,18 @@ configure<ApplicationExtension> {
             )
             // Prefer the real release keystore (set via KEYSTORE/KEYSTORE_*
             // envs); fall back to the AGP-generated debug keystore when
-            // those envs are not configured (e.g. local builds without
-            // signing secrets). This keeps `assembleRelease` installable
-            // for dev/CI testing without compromising the build path used
-            // by production builds that DO set the keystore secrets.
+            // the keystore file does not actually exist on disk (e.g. local
+            // builds or CI runs without signing secrets). Just checking
+            // System.getenv("KEY_STORE_PATH") is not enough because CI
+            // workflows typically set that env var unconditionally to a
+            // path that may not exist if the keystore secret was not
+            // configured. This keeps `assembleRelease` installable for
+            // dev/CI testing without compromising the build path used by
+            // production builds that DO set the keystore secrets.
             signingConfig =
-                if (System.getenv("KEY_STORE_PATH") != null) {
+                if (System.getenv("KEY_STORE_PATH") != null &&
+                    file(System.getenv("KEY_STORE_PATH")).exists()
+                ) {
                     signingConfigs.getByName(Constants.RELEASE)
                 } else {
                     signingConfigs.getByName("releaseDebugSigned")
