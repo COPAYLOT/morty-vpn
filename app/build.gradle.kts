@@ -88,6 +88,19 @@ configure<ApplicationExtension> {
             keyPassword =
                 LocalProperties.get("SIGNING_KEY_PASSWORD") ?: System.getenv("SIGNING_KEY_PASSWORD")
         }
+        // Fallback signing config: reuses the Android debug keystore that
+        // the AGP auto-generates on first build (~/.android/debug.keystore).
+        // Used when the real release keystore is not available so the
+        // release variant is still installable in dev / CI without secrets.
+        // Production users should still set KEYSTORE/KEYSTORE_* secrets.
+        getByName("debug").also { debugSign ->
+            create("releaseDebugSigned") {
+                storeFile = debugSign.storeFile
+                storePassword = debugSign.storePassword
+                keyAlias = debugSign.keyAlias
+                keyPassword = debugSign.keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -103,7 +116,18 @@ configure<ApplicationExtension> {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName(Constants.RELEASE)
+            // Prefer the real release keystore (set via KEYSTORE/KEYSTORE_*
+            // envs); fall back to the AGP-generated debug keystore when
+            // those envs are not configured (e.g. local builds without
+            // signing secrets). This keeps `assembleRelease` installable
+            // for dev/CI testing without compromising the build path used
+            // by production builds that DO set the keystore secrets.
+            signingConfig =
+                if (System.getenv("KEY_STORE_PATH") != null) {
+                    signingConfigs.getByName(Constants.RELEASE)
+                } else {
+                    signingConfigs.getByName("releaseDebugSigned")
+                }
             manifestPlaceholders["providerAuthority"] = "${Constants.APP_NAME}.provider"
             buildConfigField("String", "FILE_PROVIDER_AUTHORITY", "\"${Constants.APP_NAME}.provider\"")
         }
