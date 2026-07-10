@@ -111,12 +111,10 @@ class ProtonConfigService(
                     keypair.ed25519PublicPem,
                 )
 
-                // Fetch obfuscation for diagnostics; not embedded in confs
-                // (Proton Free tier is plain WireGuard, AWG params break handshake).
-                obfuscationRepository.get()
+                val obfuscation = obfuscationRepository.get()
 
                 val (parsed, broken, parseErrors) =
-                    buildAndCollectConfigs(best, keypair.x25519Private)
+                    buildAndCollectConfigs(best, keypair.x25519Private, obfuscation)
 
                 if (broken > 0 || parseErrors > 0) {
                     Timber.w(
@@ -278,16 +276,13 @@ class ProtonConfigService(
     private fun buildAndCollectConfigs(
         best: Map<String, ProtonLogicalServerDto>,
         x25519Private: ByteArray,
+        obfuscation: ObfuscationParams,
     ): Triple<List<TunnelConfig>, Int, Int> {
         val parsed = mutableListOf<TunnelConfig>()
         var broken = 0
         var parseErrors = 0
         val xPrivB64 = Base64.encodeToString(x25519Private, Base64.NO_WRAP)
-        // NOTE: do NOT inject AmneziaWG obfuscation params here. Proton VPN
-        // free tier is plain WireGuard — adding Jc/S1/H1/etc. produces
-        // non-standard init packets that the server drops. The
-        // ObfuscationParams fetch still happens (for diagnostics / future
-        // use) but the params are not embedded in the [Interface] block.
+        val obfBlock = if (obfuscation.isEmpty()) "" else obfuscation.toConfigLines() + "\n"
         for ((country, server) in best) {
             val first = server.Servers.firstOrNull()
             val entryIp = first?.EntryIP.orEmpty()
@@ -302,6 +297,7 @@ class ProtonConfigService(
                     "PrivateKey = $xPrivB64\n" +
                     "Address = 10.2.0.2/32\n" +
                     "DNS = 10.2.0.1\n" +
+                    obfBlock +
                     "[Peer]\n" +
                     "PublicKey = $serverPub\n" +
                     "AllowedIPs = 0.0.0.0/0, ::/0\n" +
