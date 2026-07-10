@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.FilterConfiguration
+import org.gradle.api.GradleException
 
 plugins {
     alias(libs.plugins.android.application)
@@ -115,8 +116,8 @@ configure<ApplicationExtension> {
                 val pw = signConfig.storePassword
                 val alias = signConfig.keyAlias
                 val kp = signConfig.keyPassword
-                project.exec {
-                    commandLine(
+                val proc =
+                    ProcessBuilder(
                         "keytool",
                         "-genkey",
                         "-noprompt",
@@ -128,6 +129,13 @@ configure<ApplicationExtension> {
                         "-validity", "10950",
                         "-keyalg", "RSA",
                         "-keysize", "2048",
+                    )
+                        .redirectErrorStream(true)
+                        .start()
+                val exit = proc.waitFor()
+                if (exit != 0) {
+                    throw GradleException(
+                        "Failed to generate fallback debug keystore at ${sf.absolutePath} (keytool exit=$exit)",
                     )
                 }
                 logger.lifecycle(
