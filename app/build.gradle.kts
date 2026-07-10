@@ -88,17 +88,55 @@ configure<ApplicationExtension> {
             keyPassword =
                 LocalProperties.get("SIGNING_KEY_PASSWORD") ?: System.getenv("SIGNING_KEY_PASSWORD")
         }
-        // Fallback signing config: reuses the Android debug keystore that
-        // the AGP auto-generates on first build (~/.android/debug.keystore).
-        // Used when the real release keystore is not available so the
-        // release variant is still installable in dev / CI without secrets.
-        // Production users should still set KEYSTORE/KEYSTORE_* secrets.
-        getByName("debug").also { debugSign ->
-            create("releaseDebugSigned") {
-                storeFile = debugSign.storeFile
-                storePassword = debugSign.storePassword
-                keyAlias = debugSign.keyAlias
-                keyPassword = debugSign.keyPassword
+        // Fallback signing config used when the real release keystore is
+        // not available (e.g. local / CI builds without signing secrets).
+        // Reuses the AGP-generated debug keystore at the standard location
+        // (~/.android/debug.keystore). The standard Android debug keystore
+        // credentials are well-known: storepass=android, keypass=android,
+        // alias=androiddebugkey.
+        create("releaseDebugSigned") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    // When the fallback signing config is selected and the AGP debug
+    // keystore does not exist (because no debug variant has ever been
+    // built on this machine), generate one using keytool so validateSigning
+    // does not fail. Runs lazily, idempotent — re-runs are no-ops.
+    tasks.matching { it.name == "validateSigningStandaloneRelease" }.configureEach {
+        doFirst {
+            val signConfig = android.signingConfigs.findByName("releaseDebugSigned") ?: return@doFirst
+            val sf = signConfig.storeFile
+            if (sf != null && !sf.exists()) {
+                sf.parentFile?.mkdirs()
+                val pw = signConfig.storePassword
+                val alias = signConfig.keyAlias
+                val kp = signConfig.keyPassword
+                val dname = "CN=Morty VPN Debug,O=Android,C=US"
+                val validity = 10950 // 30 years
+                val alg = "RSA"
+                val keysize = 2048
+                exec {
+                    commandLine(
+                        "keytool",
+                        "-genkey",
+                        "-noprompt",
+                        "-keystore", sf.absolutePath,
+                        "-alias", alias,
+                        "-storepass", pw,
+                        "-keypass", kp,
+                        "-dname", dname,
+                        "-validity", validity.toString(),
+                        "-keyalg", alg,
+                        "-keysize", keysize.toString(),
+                    )
+                }
+                logger.lifecycle(
+                    "[morty] Generated fallback debug keystore at ${sf.absolutePath}",
+                )
             }
         }
     }
