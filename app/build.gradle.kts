@@ -115,11 +115,7 @@ configure<ApplicationExtension> {
                 val pw = signConfig.storePassword
                 val alias = signConfig.keyAlias
                 val kp = signConfig.keyPassword
-                val dname = "CN=Morty VPN Debug,O=Android,C=US"
-                val validity = 10950 // 30 years
-                val alg = "RSA"
-                val keysize = 2048
-                exec {
+                project.exec {
                     commandLine(
                         "keytool",
                         "-genkey",
@@ -128,10 +124,10 @@ configure<ApplicationExtension> {
                         "-alias", alias,
                         "-storepass", pw,
                         "-keypass", kp,
-                        "-dname", dname,
-                        "-validity", validity.toString(),
-                        "-keyalg", alg,
-                        "-keysize", keysize.toString(),
+                        "-dname", "CN=Morty VPN Debug,O=Android,C=US",
+                        "-validity", "10950",
+                        "-keyalg", "RSA",
+                        "-keysize", "2048",
                     )
                 }
                 logger.lifecycle(
